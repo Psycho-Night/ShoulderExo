@@ -109,7 +109,7 @@ void loop() {
   //long currentTime = millis();
   //long deltaTime = ((float) (currentTime-previousTime))/1000;
 
-   long currentTime = millis(); 
+  long currentTime = millis(); 
   float deltaTime = (currentTime - previousTime) / 1000.0;
 
  
@@ -123,11 +123,14 @@ void loop() {
 
 
 if (Serial.available() > 0) {
-    input_angle = Serial.parseInt(); 
+    // input_angle = Serial.parseInt(); 
+    // targetAngle = input_angle;
+    String input_angle = Serial.readStringUntil('\n');
+    targetAngle = input_angle.toFloat();
     //Serial.println(received);
   }
 
-  targetAngle = input_angle;//offset + amplitude * sin(2 * PI * frequency * currentTime/1000); // Sine wave
+  // targetAngle = input_angle;//offset + amplitude * sin(2 * PI * frequency * currentTime/1000); // Sine wave
   //targetAngle = offset + amplitude * sin(2 * PI * frequency * currentTime/1000); // Sine wave
   targetAngleRad = targetAngle * deg2rad;
 
@@ -177,23 +180,10 @@ if (Serial.available() > 0) {
   if (I > maxCurrent) desiredCurrent = maxCurrent;
   if (I < -maxCurrent) desiredCurrent = -maxCurrent;
 
- // float pwmValue2 = V / V_max * maxPWM;
-  //float pwmValue3 = (MotorInputT/40) * maxPWM;
 
-//float pwmValue = constrain(pwmValue, 0, 255);  // Clamp to valid range
 
 digitalWrite(motorEnablePin, HIGH);
 float error2 = targetAngle - currentAngle;
-
-//if (error2 < 0) { // 1 degree tolerance
-//digitalWrite(motorDirectionPin, HIGH);
-//analogWrite(motorSpeedPin, (int)pwmValue);  // Stop motor
-//analogWrite(motorSpeedPin, 255);
-//} else {
-//digitalWrite(motorDirectionPin, LOW);
-//analogWrite(motorSpeedPin, (int)pwmValue);
- //analogWrite(motorSpeedPin, 255);
-//}
 
 
 if (error2 < 0) { // 1 degree tolerance
@@ -209,42 +199,32 @@ currentToPWM(desiredCurrent, I_max, maxPWM);
 }
 
 
-//delay (1000);
-
-  
-  //pwmValue = constrain(pwmValue, 0, 255);  // Clamp to valid range
-
-  //digitalWrite(motorDirectionPin, direction);
-  //analogWrite(motorSpeedPin, (int)pwmValue);
-  //delay(1500);
-
-//digitalWrite(motorEnablePin, HIGH);
-
-//digitalWrite(motorDirectionPin, LOW);  // Forward
-//analogWrite(motorSpeedPin, 255);       // Medium speed
-//delay(3500);
-
-//digitalWrite(motorDirectionPin, HIGH); // Reverse
-//analogWrite(motorSpeedPin, 255);
-//delay(1500);
-
 
   error_prev = error;
   previousTime = currentTime;
 
-  Serial.print(currentTime);
-  Serial.print(";");
-  Serial.print(targetAngle);
-  Serial.print(";");
-  Serial.print(currentAngle);
-  Serial.print(";");
+String output = "Time: " + String(currentTime) + 
+                "ms, Target Angle: " + String(targetAngle) +
+                ", Current Angle: " + String(currentAngle) +
+                ", Torque: " + String(MotorInputT);
+
+Serial.println(output);
+
+
+
+  // Serial.print(currentTime);
+  // Serial.print(";");
+  // Serial.print(targetAngle);
+  // Serial.print(";");
+  // Serial.print(currentAngle);
+  // Serial.print(";");
   //Serial.println(error);
   //Serial.println(pwmValue);
   //Serial.println(pwmValue3);
   //Serial.println(V/V_max);
   //Serial.print(I);
   // Serial.print(";");
-  Serial.println(MotorInputT);
+  // Serial.println(MotorInputT);
   //Serial.println(gearRatio);
   //Serial.println(ratio_tor);
   //Serial.println(Tfb);
@@ -271,9 +251,9 @@ float EncoderAngle(){
   // Read encoder on joint and calculate the angle
   int sensorValue = analogRead(ANG_pin);
   // float targetAngle = -0.2341*sensorValue + 280.94;
-  float targetAngle = -0.3315*sensorValue + 200.9;
+  float readAngle = -0.3315*sensorValue + 200.9;
   //float targetAngle = sensorValue;
-  return targetAngle;
+  return readAngle;
 }
 
 
