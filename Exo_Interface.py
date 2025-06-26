@@ -17,25 +17,26 @@ class SerialThread(threading.Thread):
         ############## Change it to COM port #######################
         self.ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1) 
         self.active = True
-
+    
     def run(self):
         while self.active:
             try:
-                line = self.ser.readline().decode('utf-8', errors='ignore').strip() 
-                parts = line.split(';')
-                if len(parts) == 4:
-                    time_val = float(parts[0])
-                    target = float(parts[1])
-                    current = float(parts[2])
-                    tau = float(parts[3])
+                line = self.ser.readline().decode('utf-8', errors='ignore').strip()
+                match = re.search(r"Time: (\d+)ms, Target Angle: ([\d\.-]+), Current Angle: ([\d\.-]+), Torque: (\d+)", line)
+                if match:
+                    time_val = float(match.group(1))
+                    target = float(match.group(2))
+                    current = float(match.group(3))
+                    tau = float(match.group(4))
                     self.data_queue.put((time_val, target, current, tau))
+            except UnboundLocalError:
+                pass
             except Exception as e:
-                print("Serial error:", e)
+                print("Error:", e)
 
     def stop(self):
         self.active = False
-        if self.ser and self.ser.is_open:
-            self.ser.close()
+        self.ser.close()
 
 
 class SimplePlotter(QMainWindow):
@@ -99,7 +100,7 @@ class SimplePlotter(QMainWindow):
         self.torquePlot = self.graphWidget.addPlot(1, 0, title="Torque ")
         self.torquePlot.addLegend()
         self.x_torque, self.y_torque = [], []
-        self.plot_tourqe = self.torquePlot.plot(self.x_torque, self.y_torque, pen='g', name='Target')
+        self.plot_tourqe = self.torquePlot.plot(self.x_torque, self.y_torque, pen='g', name='Torque')
 
         self.torquePlot.setLabel('left', "Values")
         self.torquePlot.setLabel('bottom', "Time", units='s')
