@@ -69,7 +69,12 @@ const float L = 0.0866; // m
 const float g = 9.81; // m/s^2
 
 int DesiredPWM = 0;
-int i = 50;
+
+const int Num_Samples = 50;    // Number of sumples for filter
+float T_Samples[Num_Samples];  // Store last 50 Motor inputs
+float T_Sum = 0;               // Sum of Tourques
+int T_index = 0;                 // Current index for the buffer
+float MotorInputT_filtered = 0; // Filtered output
 
 void setup() {
 
@@ -96,6 +101,11 @@ void setup() {
   currentAngle = EncoderAngle();
   currentAngleRad = currentAngle*deg2rad;
   error = targetAngle-currentAngle;
+
+   // Initialize all samples to zero
+  for (int i = 0; i < Num_Samples; i++) {
+    T_Samples[i] = 0;
+  }
 }
 
 
@@ -109,7 +119,7 @@ void loop() {
 
 
   // Target
-  if (currentTime/1000<5) { //modify to start faster
+  if (currentTime/1000<2) { // Modify to start faster
     targetAngle = 0; //
     targetAngleRad = targetAngle * deg2rad;
   }
@@ -141,10 +151,22 @@ void loop() {
   
   float MotorInputT = GravityComp + PID_out - u; // Desired torque signal for motor
   
-  MotorInputT = (MotorInputT + MotorInputT_prev)/2; // Filter
+  T_Sum -= T_Samples[T_index];      // Subtract oldest value from sum
+
+  T_Samples[T_index] = MotorInputT; // Store new value
+
+  T_Sum += T_Samples[T_index];        // Add new value to sum
+
+  T_index++;
+
+  if (T_index >= Num_Samples){
+    T_index = 0; // Wrap around buffer 
+  }
+
+  MotorInputT_filtered = T_Sum/Num_Samples; // Calculate the average 
 
   
-  desiredCurrent = abs((MotorInputT/gearRatio) / Kt);
+  desiredCurrent = abs((MotorInputT_filtered/gearRatio) / Kt);
 
   //  Calcualte the direftion of Motor based on the direction of torque
   if (MotorInputT>=0){
@@ -224,10 +246,4 @@ float EncoderAngle(){
   return readAngle;
 }
 
-// float AvgFilter(float newInput, int buffer){
-//   float total_u -= array[i]; // remove oldest
-//   float total_u += u; //
-//   array[i] = newInput;
-//   int i =(i+1);
-//   return (float) total_u/buffer;
-// }
+
