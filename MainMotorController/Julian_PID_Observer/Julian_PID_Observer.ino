@@ -8,9 +8,9 @@
 // RECORD CHANGES !!!!!
 
 float kf = 1.95;  //  1.65
-float kp = 1.5;   //  0.4;
-float kd = 0.1;   //  0.1;
-float ki = 1.5;   //  0.3;
+float kp = 2.5;   //  0.4;
+float kd = 0.245;   //  0.1;
+float ki = 1.0;   //  0.3;
 
 float error = 0;
 float error_prev = 0;
@@ -55,6 +55,8 @@ float currentAngleRad = 0;
 float currentAngle_prev = 0;
 float currentAngleRad_prev = 0;
 
+float MotorInputT_prev = 0;
+
 float u_prev = 0;
 
 float direction = 0;
@@ -67,6 +69,7 @@ const float L = 0.0866; // m
 const float g = 9.81; // m/s^2
 
 int DesiredPWM = 0;
+int i = 50;
 
 void setup() {
 
@@ -135,9 +138,11 @@ void loop() {
   float GravityComp = kf*sin(targetAngleRad); // Feed forward
   float PID_out = kp*error + ki*error_int + kd*error_vel; // Feedback
   float u = L*mass*g*sin(currentAngleRad) + u_prev; // Observer
-
+  
   float MotorInputT = GravityComp + PID_out - u; // Desired torque signal for motor
   
+  MotorInputT = (MotorInputT + MotorInputT_prev)/2; // Filter
+
   
   desiredCurrent = abs((MotorInputT/gearRatio) / Kt);
 
@@ -159,6 +164,7 @@ void loop() {
   error_prev = error;
   previousTime = currentTime;
   u_prev = MotorInputT;
+  MotorInputT_prev = MotorInputT;
 
 // COM message for plotting 
   String output = "Time: " + String(currentTime) + 
@@ -218,12 +224,10 @@ float EncoderAngle(){
   return readAngle;
 }
 
-
-
-
-
-
-
-
-
-
+// float AvgFilter(float newInput, int buffer){
+//   float total_u -= array[i]; // remove oldest
+//   float total_u += u; //
+//   array[i] = newInput;
+//   int i =(i+1);
+//   return (float) total_u/buffer;
+// }

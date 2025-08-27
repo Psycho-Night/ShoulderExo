@@ -22,7 +22,7 @@ class SerialThread(threading.Thread):
         while self.active:
             try:
                 line = self.ser.readline().decode('utf-8', errors='ignore').strip()
-                match = re.search(r"Time: (\d+)ms, Target Angle: ([\d\.-]+), Current Angle: ([\d\.-]+), Torque: (\d+)", line)
+                match = re.search(r"Time: (\d+)ms, Target Angle: ([\d\.-]+), Current Angle: ([\d\.-]+), Torque: ([\d\.-]+)", line)
                 if match:
                     time_val = float(match.group(1))
                     target = float(match.group(2))
