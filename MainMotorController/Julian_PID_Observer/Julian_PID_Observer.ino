@@ -8,9 +8,9 @@
 // RECORD CHANGES !!!!!
 
 float kf = 1.95;  //  1.65
-float kp = 2.5;   //  0.4;
-float kd = 0.245;   //  0.1;
-float ki = 1.0;   //  0.3;
+float kp = 1.5;   //  0.4;
+float kd = 0.4;   //  0.1;
+float ki = 0.9;   //  0.3;
 
 float error = 0;
 float error_prev = 0;
