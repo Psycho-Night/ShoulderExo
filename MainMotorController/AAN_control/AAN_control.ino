@@ -27,9 +27,9 @@ float Gains[2] = {0.0, 0.0};
 
 // SIN WAVE
 
-const float frequency = 0.2;  // Frequency in Hz (adjust as needed)
+const float frequency = 0.1;  // Frequency in Hz (adjust as needed)
 const float amplitude = 20.0; // Amplitude (max deviation from midpoint)
-const float offset = 20.0;    // Offset/midpoint of the sine wave
+const float offset = 30.0;    // Offset/midpoint of the sine wave
 
 // TIME
 
@@ -130,7 +130,7 @@ if (Serial.available() > 0) {
     //Serial.println(received);
   }
 
-  // targetAngle = input_angle;//offset + amplitude * sin(2 * PI * frequency * currentTime/1000); // Sine wave
+  targetAngle = offset + amplitude * sin(2 * PI * frequency * currentTime/1000); // Sine wave
   //targetAngle = offset + amplitude * sin(2 * PI * frequency * currentTime/1000); // Sine wave
   targetAngleRad = targetAngle * deg2rad;
 
