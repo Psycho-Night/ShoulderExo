@@ -7,10 +7,10 @@
 //--------------------- PID ------------------------------------------------------------
 // RECORD CHANGES !!!!!
 
-float kf = 1.95;  //  1.65
-float kp = 1.5;   //  0.4;
-float kd = 0.4;   //  0.1;
-float ki = 0.9;   //  0.3;
+float kf = 1.75;      //  sin- 4.0 ; 35 - 4.5;
+float kp = 1.15;      // 1.15 Good ->0.95 0.75 sin- 2.75; 35 - 0.6;
+float kd = 0.08;       //  sin- 0.25; 35 - 0.25;
+float ki = 0.55;      // 0.75 sin- 0.70; 35 - 0.22;
 
 float error = 0;
 float error_prev = 0;
@@ -20,8 +20,8 @@ float raw_integral = 0;
 
 //----------- SIN WAVE ---------------------------------------------------------------
 
-const float frequency = 0.05;  // Frequency in Hz (adjust as needed)
-const float amplitude = 0.0; // Amplitude (max deviation from midpoint)
+const float frequency = 0.05*4;  // Frequency in Hz (adjust as needed)
+const float amplitude = 35.0; // Amplitude (max deviation from midpoint)
 const float offset = 35.0;    // Offset/midpoint of the sine wave
 
 //------------ TIME ---------------------------------------------------------------
@@ -70,11 +70,11 @@ const float g = 9.81; // m/s^2
 
 int DesiredPWM = 0;
 
-const int Num_Samples = 50;    // Number of sumples for filter
+const int Num_Samples = 2;    // Number of sumples for filter
 float T_Samples[Num_Samples];  // Store last 50 Motor inputs
 float T_Sum = 0;               // Sum of Tourques
 int T_index = 0;                 // Current index for the buffer
-float MotorInputT_filtered = 0; // Filtered output
+float u_filtered = 0; // Filtered output
 
 void setup() {
 
@@ -122,9 +122,13 @@ void loop() {
   if (currentTime/1000<2) { // Modify to start faster
     targetAngle = 0; //
     targetAngleRad = targetAngle * deg2rad;
+   }
+  if (currentTime/1000<5 && currentTime>=2){
+    targetAngle = 0; //
+    targetAngleRad = targetAngle * deg2rad;
   }
   else {
-    targetAngle = offset + amplitude * sin(2 * PI * frequency * currentTime/1000); // Sine wave
+    targetAngle = offset + amplitude * sin(2 * PI * frequency * currentTime/1000+PI/4); // Sine wave
     targetAngleRad = targetAngle * deg2rad;
   }
   
@@ -149,11 +153,10 @@ void loop() {
   float PID_out = kp*error + ki*error_int + kd*error_vel; // Feedback
   float u = L*mass*g*sin(currentAngleRad) + u_prev; // Observer
   
-  float MotorInputT = GravityComp + PID_out - u; // Desired torque signal for motor
   
   T_Sum -= T_Samples[T_index];      // Subtract oldest value from sum
 
-  T_Samples[T_index] = MotorInputT; // Store new value
+  T_Samples[T_index] = u; // Store new value
 
   T_Sum += T_Samples[T_index];        // Add new value to sum
 
@@ -163,10 +166,13 @@ void loop() {
     T_index = 0; // Wrap around buffer 
   }
 
-  MotorInputT_filtered = T_Sum/Num_Samples; // Calculate the average 
+
+  u_filtered = T_Sum/Num_Samples; // Calculate the average 
+
+  float MotorInputT = GravityComp + PID_out - u_filtered*0; // Desired torque signal for motor
 
   
-  desiredCurrent = abs((MotorInputT_filtered/gearRatio) / Kt);
+  desiredCurrent = abs((MotorInputT/gearRatio) / Kt);
 
   //  Calcualte the direftion of Motor based on the direction of torque
   if (MotorInputT>=0){
@@ -245,5 +251,3 @@ float EncoderAngle(){
   // float readAngle = sensorValue; // Change to this line for calibration
   return readAngle;
 }
-
-
