@@ -7,10 +7,10 @@
 //--------------------- PID ------------------------------------------------------------
 // RECORD CHANGES !!!!!
 
-float kf = 1.75;      //  sin- 4.0 ; 35 - 4.5;
-float kp = 1.15;      // 1.15 Good ->0.95 0.75 sin- 2.75; 35 - 0.6;
-float kd = 0.08;       //  sin- 0.25; 35 - 0.25;
-float ki = 0.55;      // 0.75 sin- 0.70; 35 - 0.22;
+float kf = 1.75;      //  1.75 sin- 4.0 ; 35 - 4.5;
+float kp = 1.3;      // 1.15 Good ->0.95 0.75 sin- 2.75; 35 - 0.6;
+float kd = 0.5;       //  sin- 0.25; 35 - 0.25;
+float ki = 0.8;      // 0.55 0.75 sin- 0.70; 35 - 0.22;
 
 float error = 0;
 float error_prev = 0;
@@ -20,9 +20,13 @@ float raw_integral = 0;
 
 //----------- SIN WAVE ---------------------------------------------------------------
 
-const float frequency = 0.05*4;  // Frequency in Hz (adjust as needed)
-const float amplitude = 35.0; // Amplitude (max deviation from midpoint)
-const float offset = 35.0;    // Offset/midpoint of the sine wave
+const float frequency = 0.25;  // Frequency in Hz (adjust as needed)
+const float amplitude = 20.0; // Amplitude (max deviation from midpoint)
+const float offset = 20.0;    // Offset/midpoint of the sine wave
+
+const float frequency_T = 0.5;  // Frequency in Hz (adjust as needed)
+const float amplitude_T = 7.2/10; // Amplitude (max deviation from midpoint)
+const float offset_T = 7.2/10;    // Offset/midpoint of the sine wave
 
 //------------ TIME ---------------------------------------------------------------
 
@@ -111,11 +115,12 @@ void setup() {
 
 void loop() {
   // Time
-  long currentTime = millis(); // Read time from internal clock
+  unsigned long currentTime = millis(); // Read time from internal clock
   
   float deltaTime = (currentTime - previousTime) / 1000.0; // Calculate time differenve
 
   float Frequency = 1.0 / deltaTime; // Calculate frequency of the system
+
 
 
   // Target
@@ -123,12 +128,8 @@ void loop() {
     targetAngle = 0; //
     targetAngleRad = targetAngle * deg2rad;
    }
-  if (currentTime/1000<5 && currentTime>=2){
-    targetAngle = 0; //
-    targetAngleRad = targetAngle * deg2rad;
-  }
   else {
-    targetAngle = offset + amplitude * sin(2 * PI * frequency * currentTime/1000+PI/4); // Sine wave
+    targetAngle = offset + amplitude * sin(2.0 * PI * frequency * (currentTime/1000.0)-(3.0*PI/4.0)); // Sine wave
     targetAngleRad = targetAngle * deg2rad;
   }
   
@@ -170,6 +171,7 @@ void loop() {
   u_filtered = T_Sum/Num_Samples; // Calculate the average 
 
   float MotorInputT = GravityComp + PID_out - u_filtered*0; // Desired torque signal for motor
+//  float MotorInputT = offset_T + amplitude_T * sin(2.0 * PI * frequency_T * (currentTime/1000.0-15));
 
   
   desiredCurrent = abs((MotorInputT/gearRatio) / Kt);
