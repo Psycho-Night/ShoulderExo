@@ -80,6 +80,13 @@ float T_Sum = 0;               // Sum of Tourques
 int T_index = 0;                 // Current index for the buffer
 float u_filtered = 0; // Filtered output
 
+// --------- CHIRP SIGNAL -------------------
+
+const float k = 1.025;
+const float T = 1.0/1.0;
+const float f_0 = 0.01;
+
+
 void setup() {
 
   Serial.begin(115200);  // Serial Monitor
@@ -170,8 +177,8 @@ void loop() {
 
   u_filtered = T_Sum/Num_Samples; // Calculate the average 
 
-  float MotorInputT = GravityComp + PID_out - u_filtered*0; // Desired torque signal for motor
-//  float MotorInputT = offset_T + amplitude_T * sin(2.0 * PI * frequency_T * (currentTime/1000.0-15));
+  // float MotorInputT = GravityComp + PID_out - u_filtered*0; // Desired torque signal for motor
+ float MotorInputT = offset_T + amplitude_T * sin(2.0 * PI * f_0 * ((T*pow(k,((currentTime/1000.0)-1)/log(k)))));
 
   
   desiredCurrent = abs((MotorInputT/gearRatio) / Kt);
