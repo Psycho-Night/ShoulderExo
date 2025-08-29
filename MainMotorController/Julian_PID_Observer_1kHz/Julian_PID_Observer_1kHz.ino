@@ -190,14 +190,30 @@ void loop() {
     MotorInputT_prev = MotorInputT;
 
     // Output data for logging — non-blocking
-    Serial.print("t:"); Serial.print(currentTime);
-    Serial.print(", Target:"); Serial.print(targetAngle);
-    Serial.print(", Current:"); Serial.print(currentAngle);
-    Serial.print(", Torque:"); Serial.print(MotorInputT);
-    Serial.print(", PWM:"); Serial.print(DesiredPWM);
-    Serial.print(", Freq:"); Serial.print(Frequency);
-    Serial.print(", PID:"); Serial.print(PID_out);
-    Serial.print(", Observer:"); Serial.println(u);
+    // Serial.print("t:"); Serial.print(currentTime);
+    // Serial.print(", Target:"); Serial.print(targetAngle);
+    // Serial.print(", Current:"); Serial.print(currentAngle);
+    // Serial.print(", Torque:"); Serial.print(MotorInputT);
+    // Serial.print(", PWM:"); Serial.print(DesiredPWM);
+    // Serial.print(", Freq:"); Serial.print(Frequency);
+    // Serial.print(", PID:"); Serial.print(PID_out);
+    // Serial.print(", Observer:"); Serial.println(u);
+
+    // COM message for plotting 
+  String output = "Time: " + String(currentTime) + 
+                "ms, Target Angle: " + String(targetAngle) +
+                ", Current Angle: " + String(currentAngle) +
+                ", Torque: " + String(MotorInputT)+
+                ", PWM: " + String(DesiredPWM)+
+                ", sampling Frequency: " + String(Frequency)+
+                ", Gravity Comp: " + String(GravityComp)+
+                ", PID: " + String(PID_out)+
+                ", Observer: " + String(u);
+              //  ", kp: " + String(Kp);
+              //  ", kd: " + String(Kd);
+               
+Serial.println(output);
+
   }
 }
 
