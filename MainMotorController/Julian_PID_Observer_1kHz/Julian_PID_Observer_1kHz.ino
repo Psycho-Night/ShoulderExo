@@ -1,6 +1,8 @@
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-// PID Controller with Observer v2 (1ms Sampling)
-// Optimized for Arduino Due using Hardware Timer Interrupt
+
+// PID Controller with Observer v3
+// 1kHz with buffer log
+
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 //--------------------- PID ------------------------------------------------------------
@@ -70,9 +72,27 @@ const float k = 1.025;
 const float T = 1.0 / 1.0;
 const float f_0 = 0.01;
 
-//------------ TIME CONTROL -----------------
+// ------------ TIME CONTROL -----------------
 volatile bool controlFlag = false;
 volatile unsigned long currentTime = 0;   // ms timestamp from timer
+
+// ------------- DATA LOGGING ----------------
+
+const int Buffer_Size = 1000;
+struct Data {
+  unsigned long t;
+  float target;
+  float current;
+  float torque;
+  int pwm;
+};
+
+Data logBuffer[Buffer_Size];
+volatile int logIndex = 0;
+int logCount = 0;
+
+
+
 
 // ***************** TIMER INTERRUPT HANDLER *****************
 void TC0_Handler() {
@@ -190,14 +210,41 @@ void loop() {
     MotorInputT_prev = MotorInputT;
 
     // Output data for logging — non-blocking
-    Serial.print("t:"); Serial.print(currentTime);
-    Serial.print(", Target:"); Serial.print(targetAngle);
-    Serial.print(", Current:"); Serial.print(currentAngle);
-    Serial.print(", Torque:"); Serial.print(MotorInputT);
-    Serial.print(", PWM:"); Serial.print(DesiredPWM);
-    Serial.print(", Freq:"); Serial.print(Frequency);
-    Serial.print(", PID:"); Serial.print(PID_out);
-    Serial.print(", Observer:"); Serial.println(u);
+    // Serial.print("t:"); Serial.print(currentTime);
+    // Serial.print(", Target:"); Serial.print(targetAngle);
+    // Serial.print(", Current:"); Serial.print(currentAngle);
+    // Serial.print(", Torque:"); Serial.print(MotorInputT);
+    // Serial.print(", PWM:"); Serial.print(DesiredPWM);
+    // Serial.print(", Freq:"); Serial.print(Frequency);
+    // Serial.print(", PID:"); Serial.print(PID_out);
+    // Serial.print(", Observer:"); Serial.println(u);
+
+    // Store in buffer
+    logBuffer[logIndex].t = currentTime;
+    logBuffer[logIndex].target = targetAngle;
+    logBuffer[logIndex].current = currentAngle;
+    logBuffer[logIndex].torque = MotorInputT;
+    logBuffer[logIndex].pwm = DesiredPWM;
+    logIndex++;
+
+    if (logIndex >= Buffer_Size) logIndex = 0;
+    if (logCount < Buffer_Size) logCount++;
+
+    static unsigned long lastDump = 0;
+
+    if (millis() - lastDump >= 500) {
+      lastDump = millis();
+      for (int i = 0; i < logCount; i++){
+        Serial.print(logBuffer[i].t); Serial.print(",");
+        Serial.print(logBuffer[i].target); Serial.print(",");
+        Serial.print(logBuffer[i].current); Serial.print(",");
+        Serial.print(logBuffer[i].torque); Serial.print(",");
+        Serial.println(logBuffer[i].pwm);
+      }
+      logCount = 0;
+      }
+
+
   }
 }
 
