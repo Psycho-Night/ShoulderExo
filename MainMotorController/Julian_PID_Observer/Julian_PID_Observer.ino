@@ -20,13 +20,13 @@ float raw_integral = 0;
 
 //----------- SIN WAVE ---------------------------------------------------------------
 
-const float frequency = 0.25;  // Frequency in Hz (adjust as needed)
-const float amplitude = 20.0; // Amplitude (max deviation from midpoint)
-const float offset = 20.0;    // Offset/midpoint of the sine wave
+const float frequency = 0.0;  // Frequency in Hz (adjust as needed)
+const float amplitude = 0.0; // Amplitude (max deviation from midpoint)
+const float offset = 0.0;    // Offset/midpoint of the sine wave
 
 const float frequency_T = 0.5;  // Frequency in Hz (adjust as needed)
-const float amplitude_T = 7.2/10; // Amplitude (max deviation from midpoint)
-const float offset_T = 7.2/10;    // Offset/midpoint of the sine wave
+const float amplitude_T = 7.2/6; // Amplitude (max deviation from midpoint)
+const float offset_T = 7.2/6;    // Offset/midpoint of the sine wave
 
 //------------ TIME ---------------------------------------------------------------
 
@@ -82,9 +82,9 @@ float u_filtered = 0; // Filtered output
 
 // --------- CHIRP SIGNAL -------------------
 
-const float k = 1.025;
-const float T = 1.0/1.0;
-const float f_0 = 0.01;
+const float k = 1.1;
+const float T = 1.0/30.0;
+const float f_0 = 0.1;
 
 
 void setup() {
