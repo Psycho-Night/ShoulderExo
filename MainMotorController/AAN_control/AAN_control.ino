@@ -251,7 +251,7 @@ float EncoderAngle(){
   // Read encoder on joint and calculate the angle
   int sensorValue = analogRead(ANG_pin);
   // float targetAngle = -0.2341*sensorValue + 280.94;
-  float readAngle = -0.3315*sensorValue + 200.9;
+  float readAngle = -0.3315*sensorValue + 200.9-20;
   //float targetAngle = sensorValue;
   return readAngle;
 }

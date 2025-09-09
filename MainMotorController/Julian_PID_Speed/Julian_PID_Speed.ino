@@ -1,16 +1,16 @@
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-// PID controller with observer v1
+// PID controller - Maxon Speed controller v1.0
 
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 //--------------------- PID ------------------------------------------------------------
 // RECORD CHANGES !!!!!
 
-float kf = 0.0;      //  1.75 sin- 4.0 ; 35 - 4.5;
-float kp = 1.0;      // 1.15 Good ->0.95 0.75 sin- 2.75; 35 - 0.6;
-float kd = 0.1;       //  sin- 0.25; 35 - 0.25;
-float ki = 0.1;      // 0.8 0.75 sin- 0.70; 35 - 0.22;
+float kf = 0.0;       // Keep zero. Unnecessary  
+float kp = 1.0;       // 0.1Hz - 1.0
+float kd = 0.2;       // 0.1Hz - 0.1
+float ki = 0.05;       // 0.1Hz - 0.1
 
 float error = 0;
 float error_prev = 0;
@@ -23,10 +23,6 @@ float raw_integral = 0;
 const float frequency = 0.1;  // Frequency in Hz (adjust as needed)
 const float amplitude = 35.0; // Amplitude (max deviation from midpoint)
 const float offset = 35.0;    // Offset/midpoint of the sine wave
-
-const float frequency_T = 0.5;  // Frequency in Hz (adjust as needed)
-const float amplitude_T = 7.2/6; // Amplitude (max deviation from midpoint)
-const float offset_T = 7.2/6;    // Offset/midpoint of the sine wave
 
 //------------ TIME ---------------------------------------------------------------
 
@@ -41,8 +37,9 @@ const int motorTourqePin = 6;   // PWM Set Value (Analog Input 1)
 
 const int ANG_pin = A0;   // Shaft encoder pin def A0
 
-const float V_max = 5.0;           // Max command voltage (e.g. driver input 0-5V)
+const float V_max = 3.3;           // Max command voltage (e.g. driver input 0-5V)
 const int maxPWM = 4095;            // 12-bit PWM range
+const int PWM_deadZone = 50;
 float desiredCurrent = 0;  // Desired current in A
 const float maxCurrent = 4.24;      // Max allowed current for driver
 const float Kt = 21.3/1000; // Nm/A
@@ -73,22 +70,9 @@ const float L = 0.0866; // m
 const float g = 9.81; // m/s^2
 
 int DesiredPWM = 0;
-
-const int Num_Samples = 2;    // Number of sumples for filter
-float T_Samples[Num_Samples];  // Store last 50 Motor inputs
-float T_Sum = 0;               // Sum of Tourques
-int T_index = 0;                 // Current index for the buffer
-float u_filtered = 0; // Filtered output
-
-// --------- CHIRP SIGNAL -------------------
-
-const float k = 1.1;
-const float T = 1.0/30.0;
-const float f_0 = 0.1;
-
+float desiredVoltage = 0;
 
 void setup() {
-
   Serial.begin(115200);  // Serial Monitor
 
   // Pins setup
@@ -113,12 +97,7 @@ void setup() {
   currentAngleRad = currentAngle*deg2rad;
   error = targetAngle-currentAngle;
 
-   // Initialize all samples to zero
-  for (int i = 0; i < Num_Samples; i++) {
-    T_Samples[i] = 0;
-  }
 }
-
 
 void loop() {
   // Time
@@ -128,9 +107,7 @@ void loop() {
 
   float Frequency = 1.0 / deltaTime; // Calculate frequency of the system
 
-
-
-  // Target
+    // Target
   if (currentTime/1000<2) { // Modify to start faster
     targetAngle = 0; //
     targetAngleRad = targetAngle * deg2rad;
@@ -139,10 +116,10 @@ void loop() {
     targetAngle = offset + amplitude * sin(2.0 * PI * frequency * (currentTime/1000.0)); // Sine wave
     targetAngleRad = targetAngle * deg2rad;
   }
-  
 
   // Read and filter encoder
   float rawAngle = EncoderAngle();
+
   currentAngle = 0.1 * rawAngle + 0.9 * currentAngle;  // low-pass filter
   currentAngleRad = currentAngle * deg2rad;
 
@@ -159,49 +136,28 @@ void loop() {
 
   float GravityComp = kf*sin(targetAngleRad); // Feed forward
   float PID_out = kp*error + ki*error_int + kd*error_vel; // Feedback
-  float u = L*mass*g*sin(currentAngleRad) + u_prev; // Observer
+
+
+  float MotorInputT = GravityComp + PID_out; // Desired torque signal for motor
   
-  
-  T_Sum -= T_Samples[T_index];      // Subtract oldest value from sum
-
-  T_Samples[T_index] = u; // Store new value
-
-  T_Sum += T_Samples[T_index];        // Add new value to sum
-
-  T_index++;
-
-  if (T_index >= Num_Samples){
-    T_index = 0; // Wrap around buffer 
-  }
+  desiredVoltage = abs(MotorInputT);
 
 
-  u_filtered = T_Sum/Num_Samples; // Calculate the average 
-
-  float MotorInputT = GravityComp + PID_out - u_filtered*0; // Desired torque signal for motor
-//  float MotorInputT = offset_T + amplitude_T * sin(2.0 * PI * f_0 * ((T*pow(k,((currentTime/1000.0)-1)/log(k)))));
- 
-
-
-  
-  // desiredCurrent = abs((MotorInputT/gearRatio) / Kt);
-
-    // duty_update = (I/I_max+0.05)*4095;
-
-
-  //  Calcualte the direftion of Motor based on the direction of torque
   if (MotorInputT>=0){
-    DesiredPWM = constrain((MotorInputT / 5.0) * maxPWM, 0, maxPWM);
     digitalWrite(motorDirectionPin,HIGH);
-    analogWrite(motorTourqePin,DesiredPWM);
-    digitalWrite(motorEnablePin, HIGH);
   }
   else {
-    DesiredPWM = constrain((MotorInputT / 5.0) * maxPWM, 0, maxPWM);
     digitalWrite(motorDirectionPin,LOW);
-    analogWrite(motorTourqePin,DesiredPWM);
-    digitalWrite(motorEnablePin, HIGH);
-
   }
+
+  DesiredPWM = constrain((desiredVoltage / V_max) * maxPWM, 0, maxPWM);
+  if (DesiredPWM > 0)
+    DesiredPWM = map(DesiredPWM, 1, maxPWM, PWM_deadZone/2, maxPWM);
+  
+  analogWrite(motorTourqePin,DesiredPWM);
+  digitalWrite(motorEnablePin, HIGH);
+  
+
   // Update prevoious values
   error_prev = error;
   previousTime = currentTime;
@@ -216,8 +172,8 @@ void loop() {
                 ", PWM: " + String(DesiredPWM)+
                 ", sampling Frequency: " + String(Frequency)+
                 ", Gravity Comp: " + String(GravityComp)+
-                ", PID: " + String(PID_out)+
-                ", Observer: " + String(u);
+                ", PID: " + String(PID_out);
+                // ", Observer: " + String(u);
               //  ", kp: " + String(Kp);
               //  ", kd: " + String(Kd);
                
@@ -265,3 +221,6 @@ float EncoderAngle(){
   // float readAngle = sensorValue; // Change to this line for calibration
   return readAngle;
 }
+
+
+
