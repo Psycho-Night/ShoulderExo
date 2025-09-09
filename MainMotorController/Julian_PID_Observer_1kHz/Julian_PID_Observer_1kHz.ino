@@ -18,7 +18,7 @@ float error_int = 0;
 float raw_integral = 0;
 
 //----------- SIN WAVE ---------------------------------------------------------------
-const float frequency = 0.25;
+const float frequency = 0.0;
 const float amplitude = 20.0;
 const float offset = 20.0;
 
@@ -78,7 +78,7 @@ volatile unsigned long currentTime = 0;   // ms timestamp from timer
 
 // ------------- DATA LOGGING ----------------
 
-const int Buffer_Size = 1000;
+const int Buffer_Size = 2000;
 struct Data {
   unsigned long t;
   float target;
@@ -132,7 +132,8 @@ void setup() {
   digitalWrite(motorEnablePin, HIGH);
   digitalWrite(motorDirectionPin, LOW);
   analogWrite(motorTourqePin, 0);
-
+//  analogReadAveraging(1);          // if supported, no averaging
+  analogRead(ADC0, A0);            // use direct ADC call (Due-specific)
   analogWriteResolution(12);
 
   for (int i = 0; i < Num_Samples; i++) {
@@ -161,13 +162,13 @@ void loop() {
       targetAngle = 0;
       targetAngleRad = targetAngle * deg2rad;
     } else {
-      targetAngle = offset + amplitude * sin(2.0 * PI * frequency * (currentTime / 1000.0) - (3.0 * PI / 4.0));
+      targetAngle = offset + amplitude * sin(2.0 * PI * frequency * (currentTime / 1000.0) - (0.0 * PI / 4.0));
       targetAngleRad = targetAngle * deg2rad;
     }
 
     // Read encoder and filter
     float rawAngle = EncoderAngle();
-    currentAngle = 0.1 * rawAngle + 0.9 * currentAngle;
+    currentAngle = 1.0 * rawAngle + 0.0 * currentAngle;
     currentAngleRad = currentAngle * deg2rad;
 
     // Compute error and derivatives
@@ -227,21 +228,16 @@ void loop() {
     logBuffer[logIndex].pwm = DesiredPWM;
     logIndex++;
 
-    if (logIndex >= Buffer_Size) logIndex = 0;
-    if (logCount < Buffer_Size) logCount++;
-
-    static unsigned long lastDump = 0;
-
-    if (millis() - lastDump >= 500) {
-      lastDump = millis();
-      for (int i = 0; i < logCount; i++){
+    if (logIndex >= Buffer_Size){
+      logIndex = 0;
+//      Dumb buffer
+      for (int i = 0; i < Buffer_Size; i++){
         Serial.print(logBuffer[i].t); Serial.print(",");
         Serial.print(logBuffer[i].target); Serial.print(",");
         Serial.print(logBuffer[i].current); Serial.print(",");
         Serial.print(logBuffer[i].torque); Serial.print(",");
         Serial.println(logBuffer[i].pwm);
       }
-      logCount = 0;
       }
 
 
@@ -250,7 +246,8 @@ void loop() {
 
 // ***************** ENCODER FUNCTION *****************
 float EncoderAngle() {
-  int sensorValue = analogRead(ANG_pin);
+  int sensorValue = analogRead(ADC0,ANG_pin);
+//  analogRead(ADC0, A0);            // use direct ADC call (Due-specific)
   float readAngle = -0.5087 * sensorValue + 190.35;
   return readAngle;
 }
