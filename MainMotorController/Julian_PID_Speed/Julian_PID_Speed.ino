@@ -7,10 +7,10 @@
 //--------------------- PID ------------------------------------------------------------
 // RECORD CHANGES !!!!!
 
-float kf = 0.0;       // Keep zero. Unnecessary  
-float kp = 1.0;       // 0.1Hz - 1.0
-float kd = 0.2;       // 0.1Hz - 0.1
-float ki = 0.05;       // 0.1Hz - 0.1
+float kf = 0.0;       // Keep zero
+float kp = 2.0;       //0.2Hz - 1.0; 0.1Hz - 1.0; 0.05Hz - 1.8
+float kd = 0.08;       // 0.2Hz - 0.1; 0.05Hz - 0.05
+float ki = 0.0;      // 0.2Hz - 0.1; 0.05Hz - 0.0
 
 float error = 0;
 float error_prev = 0;
@@ -23,6 +23,10 @@ float raw_integral = 0;
 const float frequency = 0.1;  // Frequency in Hz (adjust as needed)
 const float amplitude = 35.0; // Amplitude (max deviation from midpoint)
 const float offset = 35.0;    // Offset/midpoint of the sine wave
+
+const long InitialisationDelay = 2000; // Delay used for initialisation
+//const float phaseShift = asin(-offset/amplitude); // Phase shift for sin wave
+const float phaseShift = -PI/2;
 
 //------------ TIME ---------------------------------------------------------------
 
@@ -39,7 +43,7 @@ const int ANG_pin = A0;   // Shaft encoder pin def A0
 
 const float V_max = 3.3;           // Max command voltage (e.g. driver input 0-5V)
 const int maxPWM = 4095;            // 12-bit PWM range
-const int PWM_deadZone = 50;
+const int PWM_deadZone = 33;
 float desiredCurrent = 0;  // Desired current in A
 const float maxCurrent = 4.24;      // Max allowed current for driver
 const float Kt = 21.3/1000; // Nm/A
@@ -97,6 +101,8 @@ void setup() {
   currentAngleRad = currentAngle*deg2rad;
   error = targetAngle-currentAngle;
 
+ 
+
 }
 
 void loop() {
@@ -108,12 +114,13 @@ void loop() {
   float Frequency = 1.0 / deltaTime; // Calculate frequency of the system
 
     // Target
-  if (currentTime/1000<2) { // Modify to start faster
+  if (currentTime<InitialisationDelay) { // Modify to start faster
     targetAngle = 0; //
     targetAngleRad = targetAngle * deg2rad;
    }
   else {
-    targetAngle = offset + amplitude * sin(2.0 * PI * frequency * (currentTime/1000.0)); // Sine wave
+    long SinTime = currentTime - InitialisationDelay;
+    targetAngle = offset + amplitude * sin(2.0 * PI * frequency * (SinTime/1000.0) + phaseShift); // Sine wave
     targetAngleRad = targetAngle * deg2rad;
   }
 
@@ -151,8 +158,9 @@ void loop() {
   }
 
   DesiredPWM = constrain((desiredVoltage / V_max) * maxPWM, 0, maxPWM);
-  if (DesiredPWM > 0)
-    DesiredPWM = map(DesiredPWM, 1, maxPWM, PWM_deadZone/2, maxPWM);
+  if (DesiredPWM > PWM_deadZone-10){
+    DesiredPWM = constrain(DesiredPWM, PWM_deadZone+5, maxPWM);
+  }
   
   analogWrite(motorTourqePin,DesiredPWM);
   digitalWrite(motorEnablePin, HIGH);
@@ -168,7 +176,7 @@ void loop() {
   String output = "Time: " + String(currentTime) + 
                 "ms, Target Angle: " + String(targetAngle) +
                 ", Current Angle: " + String(currentAngle) +
-                ", Torque: " + String(MotorInputT)+
+                ", Torque: " + String(DesiredPWM)+
                 ", PWM: " + String(DesiredPWM)+
                 ", sampling Frequency: " + String(Frequency)+
                 ", Gravity Comp: " + String(GravityComp)+
@@ -221,6 +229,3 @@ float EncoderAngle(){
   // float readAngle = sensorValue; // Change to this line for calibration
   return readAngle;
 }
-
-
-
