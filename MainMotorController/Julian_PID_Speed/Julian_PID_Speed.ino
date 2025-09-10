@@ -8,9 +8,9 @@
 // RECORD CHANGES !!!!!
 
 float kf = 0.0;       // Keep zero
-float kp = 2.0;       //0.2Hz - 1.0; 0.1Hz - 1.0; 0.05Hz - 1.8
-float kd = 0.08;       // 0.2Hz - 0.1; 0.05Hz - 0.05
-float ki = 0.0;      // 0.2Hz - 0.1; 0.05Hz - 0.0
+float kp = 2.0;       // 0.2Hz - 1.0; 0.1Hz - 1.2; 0.05Hz - 1.8
+float kd = 0.0;      // 0.2Hz - 0.0; 0.1Hz - 0.01; 0.05Hz - 0.05
+float ki = 0.00;       // 0.2Hz - 0.0; 0.1Hz - 0.0; 0.05Hz - 0.0
 
 float error = 0;
 float error_prev = 0;
@@ -20,7 +20,7 @@ float raw_integral = 0;
 
 //----------- SIN WAVE ---------------------------------------------------------------
 
-const float frequency = 0.1;  // Frequency in Hz (adjust as needed)
+const float frequency = 0.05;  // Frequency in Hz (adjust as needed)
 const float amplitude = 35.0; // Amplitude (max deviation from midpoint)
 const float offset = 35.0;    // Offset/midpoint of the sine wave
 
