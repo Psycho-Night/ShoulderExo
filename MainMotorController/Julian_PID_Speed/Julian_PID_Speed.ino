@@ -8,8 +8,8 @@
 // RECORD CHANGES !!!!!
 
 float kf = 0.0;       // Keep zero
-float kp = 2.0;       // 0.2Hz - 1.0; 0.1Hz - 1.2; 0.05Hz - 1.8
-float kd = 0.0;      // 0.2Hz - 0.0; 0.1Hz - 0.01; 0.05Hz - 0.05
+float kp = 1.8;       // 0.2Hz - 1.0; 0.1Hz - 1.2; 0.05Hz - 1.8
+float kd = 0.01;      // 0.2Hz - 0.0; 0.1Hz - 0.01; 0.05Hz - 0.05
 float ki = 0.00;       // 0.2Hz - 0.0; 0.1Hz - 0.0; 0.05Hz - 0.0
 
 float error = 0;
