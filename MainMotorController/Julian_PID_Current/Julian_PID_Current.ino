@@ -1,6 +1,6 @@
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-// PID controller - Maxon Speed controller v1.0
+// PID controller - Maxon Current controller v1.0
 
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -8,9 +8,9 @@
 // RECORD CHANGES !!!!!
 
 float kf = 0.0;       // Keep zero
-float kp = 1.8;       // 0.2Hz - 1.0; 0.1Hz - 1.2; 0.05Hz - 1.8
-float kd = 0.01;      // 0.2Hz - 0.0; 0.1Hz - 0.01; 0.05Hz - 0.05
-float ki = 0.00;       // 0.2Hz - 0.0; 0.1Hz - 0.0; 0.05Hz - 0.0
+float kp = 2.5;       // 0.2Hz - 1.0; 0.1Hz - 1.2; 0.05Hz - 1.8
+float kd = 0.1;      // 0.2Hz - 0.0; 0.1Hz - 0.01; 0.05Hz - 0.05
+float ki = 0.00;      // 0.2Hz - 0.0; 0.1Hz - 0.0; 0.05Hz - 0.0
 
 float error = 0;
 float error_prev = 0;
@@ -20,9 +20,9 @@ float raw_integral = 0;
 
 //----------- SIN WAVE ---------------------------------------------------------------
 
-const float frequency = 0.1;  // Frequency in Hz (adjust as needed)
-const float amplitude = 40.0; // Amplitude (max deviation from midpoint)
-const float offset = 40.0;    // Offset/midpoint of the sine wave
+const float frequency = 0.2;  // Frequency in Hz (adjust as needed)
+const float amplitude = 35.0; // Amplitude (max deviation from midpoint)
+const float offset = 35.0;    // Offset/midpoint of the sine wave
 
 const long InitialisationDelay = 2000; // Delay used for initialisation
 //const float phaseShift = asin(-offset/amplitude); // Phase shift for sin wave
@@ -38,13 +38,12 @@ long timeOff = 0;
 const int motorEnablePin = 2;     // Enable (Digital Input 2, High Active)
 const int motorDirectionPin = 4;  // Direction (Digital Input 4, High Active)
 const int motorTourqePin = 6;   // PWM Set Value (Analog Input 1)
-const int AnOut = A1;   // PWM Set Value (Analog Input 1)
 
 const int ANG_pin = A0;   // Shaft encoder pin def A0
 
 const float V_max = 3.3;           // Max command voltage (e.g. driver input 0-5V)
 const int maxPWM = 4095;            // 12-bit PWM range
-const int PWM_deadZone = 33;
+const int PWM_deadZone = 40;
 float desiredCurrent = 0;  // Desired current in A
 const float maxCurrent = 4.24;      // Max allowed current for driver
 const float Kt = 21.3/1000; // Nm/A
@@ -76,12 +75,6 @@ const float g = 9.81; // m/s^2
 
 int DesiredPWM = 0;
 float desiredVoltage = 0;
-float maxSpeed = 10600;
-float alpha = 1;
-
-float PID_out = 0;
-
-
 
 void setup() {
   Serial.begin(115200);  // Serial Monitor
@@ -91,7 +84,6 @@ void setup() {
   pinMode(motorDirectionPin, OUTPUT);
   pinMode(motorTourqePin, OUTPUT);
   pinMode(ANG_pin, INPUT);
-  pinMode(AnOut, INPUT);
 
   digitalWrite(motorEnablePin, HIGH);
   digitalWrite(motorDirectionPin, LOW);
@@ -109,22 +101,6 @@ void setup() {
   currentAngleRad = currentAngle*deg2rad;
   error = targetAngle-currentAngle;
 
-}
-
-float signum(float sig_input){
-  if (sig_input>0) {
-  float sig_out = 1.0;
-  return sig_out;
-  }
-  else if (sig_input<0) {
-  float sig_out = -1.0;
-  return sig_out;
-  }
-  else {
-  float sig_out = 0;
-  return sig_out;
-  }
-  
 }
 
 void loop() {
@@ -164,26 +140,12 @@ void loop() {
   // ------------------- Controller ----------------------------------
 
   float GravityComp = kf*sin(targetAngleRad); // Feed forward
-  float PID_out_old = kp*error + ki*error_int + kd*error_vel; // Feedback rpm
-  // float PID_out_old= 0.05 * sin(2.0 * PI * 0.05 * (currentTime/1000.0)); // Sine wave
-  float up_bound = 0.01;
-  float down_bound = -0.05;
-  
-
-  // if (PID_out_old = 0){
-  //   PID_out = 0; 
-    
-  // }
-  // else {
-    PID_out = alpha*PID_out_old+signum(PID_out_old)*up_bound;
-  // }
-  
-
+  float PID_out = kp*error + ki*error_int + kd*error_vel; // Feedback
 
 
   float MotorInputT = GravityComp + PID_out; // Desired torque signal for motor
-  
-  desiredVoltage = abs(MotorInputT);
+
+  desiredCurrent = abs(MotorInputT);
 
   if (MotorInputT>=0){
     digitalWrite(motorDirectionPin,HIGH);
@@ -192,46 +154,41 @@ void loop() {
     digitalWrite(motorDirectionPin,LOW);
   }
 
-  DesiredPWM = constrain((desiredVoltage / V_max) * maxPWM, 0, maxPWM);
-  // if (DesiredPWM > PWM_deadZone-10){
-  //   DesiredPWM = constrain(DesiredPWM, PWM_deadZone+5, maxPWM);
-  // }
+  DesiredPWM = constrain((desiredCurrent / maxCurrent) * maxPWM, 0, maxPWM);
+  if (DesiredPWM > PWM_deadZone-10){
+    DesiredPWM = constrain(DesiredPWM, PWM_deadZone+10, maxPWM);
+  }
   
   analogWrite(motorTourqePin,DesiredPWM);
   digitalWrite(motorEnablePin, HIGH);
-  
+
   // Update prevoious values
   error_prev = error;
   previousTime = currentTime;
   u_prev = MotorInputT;
   MotorInputT_prev = MotorInputT;
 
-  float SpeedOut = analogRead(AnOut);
-  float ESCON_out = SpeedOut/3.3*10600;
+  // COM message for plotting 
+    String output = "Time: " + String(currentTime) + 
+                  "ms, Target Angle: " + String(targetAngle) +
+                  ", Current Angle: " + String(currentAngle) +
+                  ", Torque: " + String(DesiredPWM)+
+                  ", PWM: " + String(DesiredPWM)+
+                  ", sampling Frequency: " + String(Frequency)+
+                  ", Gravity Comp: " + String(GravityComp)+
+                  ", PID: " + String(PID_out);
+                  // ", Observer: " + String(u);
+                //  ", kp: " + String(Kp);
+                //  ", kd: " + String(Kd);
 
+  Serial.println(output);
+  
+  // DEBUG
 
-// COM message for plotting 
-  String output = "Time: " + String(currentTime) + 
-                "ms, Target Angle: " + String(targetAngle) +
-                ", Current Angle: " + String(currentAngle) +
-                ", Torque: " + String(MotorInputT)+
-                ", PWM: " + String(DesiredPWM)+
-                ", sampling Frequency: " + String(Frequency)+
-                ", Gravity Comp: " + String(GravityComp)+
-                ", PID: " + String(PID_out);
-                // ", PID: " + String(ESCON_out);
-                // ", Observer: " + String(u);
-              //  ", kp: " + String(Kp);
-              //  ", kd: " + String(Kd);
-               
-Serial.println(output);
-
-// DEBUG
-
-// Serial.print(PID_out);
+// Serial.print(GravityComp);
 //   Serial.print(" ");
-//   Serial.println(ESCON_out);
-  // Serial.print(" ");
+//   Serial.print(PID_out);
+//   Serial.print(" ");
 //   Serial.println(u);
 //   Serial.print(" ");
   // Serial.println(error);
@@ -267,6 +224,4 @@ float EncoderAngle(){
   // float readAngle = sensorValue; // Change to this line for calibration
   return readAngle;
 }
-
-
 
