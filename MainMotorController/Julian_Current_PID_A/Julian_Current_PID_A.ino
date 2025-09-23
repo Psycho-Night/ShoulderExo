@@ -7,9 +7,9 @@
 //----------- PID ---------------------------------------------------------------
 // Keep track of changes
 
-const float K_p = 0.7;
-const float K_i = 0.01;
-const float K_d = 0.01;
+const float K_p = 0.8; // 0.8
+const float K_i = 0.02; // 0.02
+const float K_d = 0.01; // 0.01
 
 float error = 0.0;
 float error_d = 0.0;
