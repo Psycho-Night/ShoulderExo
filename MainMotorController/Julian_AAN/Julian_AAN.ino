@@ -162,7 +162,7 @@ void loop() {
   T_fb = K_p*error+K_d*error_vel;
 
   // Deadzone mitigation
-  Torque_old = -(T_ff+T_fb); // Desired torque [Nm]
+  Torque_old = (T_ff+T_fb); // Desired torque [Nm]
   Torque = alpha_out*Torque_old+signum(Torque_old)*up_bound; // Filtered torque [Nm]
 
   // ------------------- Send Value ----------------------------------
@@ -171,10 +171,10 @@ void loop() {
   desiredCurrent = (abs(Torque)/gearRatio) / Kt; // Convertion from Torque to Current [A]
 
   if (Torque>=0){
-    digitalWrite(motorDirectionPin,LOW);
+    digitalWrite(motorDirectionPin,HIGH);
   }
   else {
-    digitalWrite(motorDirectionPin,HIGH);
+    digitalWrite(motorDirectionPin,LOW);
   }
   
   DesiredPWM= constrain((desiredCurrent/maxCurrent) * maxPWM, 0, maxPWM);
