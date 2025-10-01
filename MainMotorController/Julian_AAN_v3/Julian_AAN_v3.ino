@@ -1,17 +1,17 @@
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-// AAN controller - Maxon Current controller v1.0 Written for Arduino Due
-
+// AAN controller - Maxon Current controller v3.0 Written for Arduino Due
+// soft start
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 //--------------------- AAN ------------------------------------------------------------
 
-const float alpha = 2.5;  // woriking 2.0 or 3.5 if Freqency is 100Hz
-const float beta = 0.05;  // Keep it 0.05
+const float alpha = 0.006;  // working 0.006
+const float beta = 0.0;  // Keep it 0.05
 
 
 // Tune those and keep changes
-const float a     = 2.5;      // working 2.0 or 3.5 if Freqency is 100Hz
+const float a     = 1.5;      // for now 1.5 but might have to be decreased
 const float b = 5.0;      // Keep it 5.0
 
 float error = 0;          // Position error
@@ -89,6 +89,9 @@ float Torque_old = 0;
 float up_bound = 0.01;    // upper bound for deadzone
 float down_bound = -0.01; // lower bound for deadzone
 
+bool controllerActive = false;  // Prevents immediate torque output
+
+
 void setup() {
   Serial.begin(115200);  // Serial Monitor
 
@@ -122,121 +125,99 @@ void setup() {
 }
 
 void loop() {
-
-  // Time
-  long currentTime = millis(); // [ms]
-  float deltaTime = (currentTime - previousTime) / 1000.0; // [s]
+  long currentTime = millis();
+  float deltaTime = (currentTime - previousTime) / 1000.0;
   float Frequency = 1.0 / deltaTime; // Frequency of the system [Hz]
 
-  // Target
-  if (currentTime<InitialisationDelay) { // Modify to start faster
+  // --- Target angle (sinusoidal after init delay) ---
+  if (currentTime < InitialisationDelay) {
     targetAngle = EncoderAngle();
     targetAngleRad = targetAngle * deg2rad;
-   }
-  else {
+  } else {
     long SinTime = currentTime - InitialisationDelay;
-    targetAngle = offset + amplitude * sin(2.0 * PI * frequency * (SinTime/1000.0) + phaseShift); // Sine wave
+    float sineValue = offset + amplitude * sin(2.0 * PI * frequency * (SinTime / 1000.0) + phaseShift);
+    
+    // Smooth blend between init pos and sine wave start
+    float ramp = constrain((currentTime - InitialisationDelay) / 1000.0, 0.0, 1.0);  // 1s ramp
+    targetAngle = (1.0 - ramp) * currentAngle + ramp * sineValue;
     targetAngleRad = targetAngle * deg2rad;
+
+    // Enable controller only after delay
+    controllerActive = true;
   }
 
-  // Read and filter angle read
-  float rawAngle = EncoderAngle(); // [deg]
-  currentAngle = 0.1 * rawAngle + 0.9 * currentAngle;  // low-pass filter
-  currentAngleRad = currentAngle * deg2rad; // [rad]
+  // --- Encoder filtering ---
+  float rawAngle = EncoderAngle();
+  currentAngle = 0.1 * rawAngle + 0.9 * currentAngle;
+  currentAngleRad = currentAngle * deg2rad;
 
-  // Filter derivative
-  error = targetAngleRad - currentAngleRad; // [rad]
+  // --- Error terms ---
+  error = targetAngleRad - currentAngleRad;
+  float raw_derivative = (error - error_prev) / deltaTime;
+  error_vel = 0.9 * error_vel + 0.1 * raw_derivative;
 
-  float raw_derivative = (error - error_prev) / deltaTime; // [rad/s]
-  error_vel = 0.9 * error_vel + 0.1 * raw_derivative;  // smoothed derivative
+  float Torque = 0;
 
-  // ------------------- AAN Controller ----------------------------------
-  
-  //  Torque - Feed forward (FF)
-  T_ff = T_ff_prev + alpha*error_prev;
-  
-  //  Torque - Feedback (FB)
+  if (controllerActive) {
+    // --------- AAN Controller -----------
 
-  epsilon = error + beta*error_vel;
-  betta   = a/(1+b*epsilon*epsilon);
-  f = epsilon/betta;
+    // Feedforward torque
+    T_ff = T_ff_prev + alpha * error_prev;
 
-  // Gain calculation
-  float K_p = f*error;
-  float K_d = f*error_vel;
+    // Feedback torque
+    epsilon = error + beta * error_vel;
+    betta   = a / (1 + b * epsilon * epsilon);
+    f = epsilon / betta;
 
-  // Torque calculation
-  T_fb = K_p*error+K_d*error_vel;
+    float K_p = f * error;
+    float K_d = f * error_vel;
 
-  // Deadzone mitigation
-  Torque_old = (T_ff+T_fb); // Desired torque [Nm]
-  Torque = alpha_out*Torque_old+signum(Torque_old)*up_bound; // Filtered torque [Nm]
+    T_fb = K_p * error + K_d * error_vel;
 
-  // ------------------- Send Value ----------------------------------
+    // Desired torque
+    float Torque_old = T_ff + T_fb;
 
+    // Deadzone mitigation
+    Torque = alpha_out * Torque_old + signum(Torque_old) * up_bound;
 
-  desiredCurrent = (abs(Torque)/gearRatio) / Kt; // Convertion from Torque to Current [A]
+    // Convert torque to current
+    desiredCurrent = (abs(Torque) / gearRatio) / Kt;
 
-  if (Torque>=0){
-    digitalWrite(motorDirectionPin,HIGH);
+    if (Torque >= 0) digitalWrite(motorDirectionPin, HIGH);
+    else digitalWrite(motorDirectionPin, LOW);
+
+    DesiredPWM = constrain((desiredCurrent / maxCurrent) * maxPWM, 0, maxPWM);
+
+    analogWrite(motorTourqePin, DesiredPWM);
+    digitalWrite(motorEnablePin, HIGH);
+
+    T_ff_prev = T_ff; // update for next step
+  } else {
+    // Controller inactive → zero torque
+    analogWrite(motorTourqePin, 0);
+    digitalWrite(motorEnablePin, LOW);
   }
-  else {
-    digitalWrite(motorDirectionPin,LOW);
-  }
-  
-  DesiredPWM= constrain((desiredCurrent/maxCurrent) * maxPWM, 0, maxPWM);
 
-  analogWrite(motorTourqePin, DesiredPWM);
-  digitalWrite(motorEnablePin, HIGH);
-
-  // Read values from ESCON
+  // --- ESCON feedback ---
   ActualCurrent = analogRead(ESCON_OUT_pin);
-  ActualCurrent = ActualCurrent/4095*4.24;
-  // ActualCurrent = ActualCurrent/1023*4.24;
+  ActualCurrent = ActualCurrent / 4095 * 4.24;
 
   error_prev = error;
   previousTime = currentTime;
 
-  // ------------------- Send COM Message ----------------------------------
-  
-  // COM message for plotting 
+  // --- Serial plot output ---
   String output = "TT: " + String(currentTime) + 
-                ", T A: " + String(targetAngle) +
-                // "ms, Target Angle: " + String(targetAngle) +
-                // ", Current Angle: " + String(currentAngle) +
-                ", C A: " + String(currentAngle) +
-                // ", T_FF: " + String(T_ff)+
-                // ", T_FB: " + String(T_fb)+
-                ", T: " + String(Torque)+
-                // ", Torque: " + String(Torque)+
-                ", T C: " + String(desiredCurrent) +
-                // ", Target Current: " + String(desiredCurrent) +
-                ", A C: " + String(ActualCurrent) +
-                // ", Current: " + String(ActualCurrent) +
-                // ", PWM: " + String(DesiredPWM)+
-                ", F: " + String(Frequency);
-                // ", Frequency: " + String(Frequency);
-                // ", PID: " + String(ESCON_out);
-                // ", Observer: " + String(u);
-              //  ", kp: " + String(Kp);
-              //  ", kd: " + String(Kd);
-               
+                  ", T A: " + String(targetAngle) +
+                  ", C A: " + String(currentAngle) +
+                  ", T: " + String(Torque) +
+                  ", T_FF: " + String(T_ff)+
+                  ", T_FB: " + String(T_fb)+
+                  ", T C: " + String(desiredCurrent) +
+                  ", A C: " + String(ActualCurrent)+
+                  ", F: " + String(Frequency);
   Serial.println(output);
-
-  // --------------- DEBUG ---------------------------------------------------
-  // Serial.print(T_ff);
-  // Serial.print(" ");
-  // Serial.print(T_ff_prev);
-  // Serial.print(" ");
-  // Serial.print(T_fb);
-  // Serial.print(" ");
-  // Serial.println(Torque);
-  // Serial.print(" ");
-
-
-
-
 }
+
 
 float signum(float sig_input){
   if (sig_input>0) {
