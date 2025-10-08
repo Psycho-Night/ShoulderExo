@@ -20,10 +20,7 @@ class SerialThread(threading.Thread):
 
     def run(self):
         pattern = re.compile(
-            r"TT: (\d+), T A: ([\d\.-]+), C A: ([\d\.-]+), "
-            r"Torque: ([\d\.-]+), T_FF: ([\d\.-]+), T_FB: ([\d\.-]+), "
-            r"T Current: ([\d\.-]+), C: ([\d\.-]+), "
-            r" F: ([\d\.-]+)"
+            r"TT: (\d+), T A: ([\d\.-]+), C A: ([\d\.-]+), T: ([\d\.-]+), T_FF: ([\d\.-]+), T_FB: ([\d\.-]+), T C: ([\d\.-]+), A C: ([\d\.-]+), F: ([\d\.-]+)"
         )
         while self.active:
             try:
@@ -115,7 +112,7 @@ class SimplePlotter(QMainWindow):
         self.curve_freq = self.plot4.plot([], [], pen="b", name="Frequency")
 
         # Storage for saving
-        self.data_log = []
+        self.data_log = []``
 
     def update_plots(self):
         while not self.data_queue.empty():
@@ -123,7 +120,7 @@ class SimplePlotter(QMainWindow):
             (time_sec, target_angle, current_angle,
              t_ff, t_fb, torque,
              target_cur, actual_cur,
-             pwm, freq) = data
+             freq) = data
 
             # Append data
             self.x_time.append(time_sec)

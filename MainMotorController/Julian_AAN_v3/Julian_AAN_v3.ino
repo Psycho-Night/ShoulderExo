@@ -11,7 +11,7 @@ const float beta = 0.0;  // Keep it 0.05
 
 
 // Tune those and keep changes
-const float a     = 1.5;      // for now 1.5 but might have to be decreased
+const float a     = 1.0;      // for now 1.5 but might have to be decreased
 const float b = 5.0;      // Keep it 5.0
 
 float error = 0;          // Position error
@@ -28,7 +28,7 @@ float T_fb = 0;           // Feedback torque
 
 //----------- SIN WAVE ---------------------------------------------------------------
 
-const float frequency = 0.05;            // Frequency in Hz (adjust as needed)
+const float frequency = 0.2;            // Frequency in Hz (adjust as needed)
 const float amplitude = 35.0;           // Amplitude (max deviation from midpoint)
 const float offset = 35.0;              // Offset/midpoint of the sine wave
 const long InitialisationDelay = 4000;  // Delay used for initialisation
@@ -86,7 +86,7 @@ float alpha_out = 1;
 float Torque = 0;
 float Torque_old = 0;
 
-float up_bound = 0.01;    // upper bound for deadzone
+float up_bound = 0.05;    // upper bound for deadzone
 float down_bound = -0.01; // lower bound for deadzone
 
 bool controllerActive = false;  // Prevents immediate torque output
@@ -240,7 +240,7 @@ float EncoderAngle(){
   int sensorValue = analogRead(ANG_pin);
   // Calculate the angle
   // float readAngle = -0.3315*sensorValue + 200.9-20;
-  float readAngle = -0.0845*sensorValue + 181.16;
+  float readAngle = -0.0845*sensorValue + 181.16-10;
   // float readAngle = sensorValue; // Change to this line for calibration
   return readAngle;
 }
