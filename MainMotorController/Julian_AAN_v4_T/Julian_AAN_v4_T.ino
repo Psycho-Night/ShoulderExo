@@ -181,7 +181,7 @@ float EncoderAngle(){
 }
 
 void setup() {
-    Serial.begin(1000000);  // Serial Monitor
+  Serial.begin(1000000);  // Serial Monitor
 
   // Pins setup
   pinMode(motorEnablePin, OUTPUT);
