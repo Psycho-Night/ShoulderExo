@@ -81,15 +81,16 @@ bool controllerActive = false;  // Activation of the control loop
 
 // =========================== COMPUTER COMUNICATION ===============================
 struct Frame {
-  uint32_t t;     // timestamp [microseconds]
-  float targetA;  // Target angle [deg]
-  float currentA; // Current angle [deg]
-  float torque;   // Torque [Nm]
-  float t_ff;     // T_FF [Nm]
-  float t_fb;     // T_FB [Nm]
-  float desiredI; // Desired output [A]
-  float actualI;  // Received input [A]
-  float freq;     // System Frequency [Hz]
+  uint16_t header;  // Always 0xAA55
+  uint32_t t;       // timestamp [microseconds]
+  float targetA;    // Target angle [deg]
+  float currentA;   // Current angle [deg]
+  float torque;     // Torque [Nm]
+  float t_ff;       // T_FF [Nm]
+  float t_fb;       // T_FB [Nm]
+  float desiredI;   // Desired output [A]
+  float actualI;    // Received input [A]
+  float freq;       // System Frequency [Hz]
 };
 
 // =========================== Functions ===========================================
@@ -295,6 +296,7 @@ void loop() {
 
       // Prepare and send data to PC
       Frame frame;
+      frame.header = 0xAA55;
       frame.t = currentTime;
       frame.targetA = targetAngle;
       frame.currentA = currentAngle;
