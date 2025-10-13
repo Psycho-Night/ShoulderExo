@@ -13,8 +13,13 @@ class SerialThread(threading.Thread):
         self.data_queue = data_queue
         self.cmd_queue = cmd_queue
         self.active = True
-        self.frame_size = struct.calcsize("<Iffffffff")
         self.ser = serial.Serial('/dev/ttyACM0', 1_000_000, timeout=1)
+
+        self.frame_size = 38
+        self.HEADER = b'\x55\xaa'
+        self.DATA_SIZE = self.frame_size - len(self.HEADER)
+        self.struct_fmt = "<Iffffffff"
+        self.struct_len = struct.calcsize(self.struct_fmt)
 
     def run(self):
         print("Waiting for Teensy READY...")
@@ -25,10 +30,17 @@ class SerialThread(threading.Thread):
                 self.ser.write((cmd + "\n").encode())
 
             # Read binary frames
-            data = self.ser.read(self.frame_size)
-            if len(data) == self.frame_size:
-                unpacked = struct.unpack("<Iffffffff", data)
-                self.data_queue.put(unpacked)
+            byte = self.ser.read(1)
+            if byte == self.HEADER[:1]:
+                next_byte = self.ser.read(1)
+                if next_byte == self.HEADER[1:]:
+                    data = self.ser.read(self.DATA_SIZE)
+                    if len(data) == self.frame_size:
+                        try:
+                            unpacked = struct.unpack(self.struct_fmt, data)
+                            self.data_queue.put(unpacked)
+                        except struct.error:
+                            continue
 
     def stop(self):
         self.active = False
