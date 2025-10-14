@@ -13,6 +13,7 @@ class SerialThread(threading.Thread):
         self.data_queue = data_queue
         self.cmd_queue = cmd_queue
         self.active = True
+        # Change this to COM port if on Windows
         self.ser = serial.Serial('/dev/ttyACM0', 1_000_000, timeout=1)
 
         self.frame_size = 38
@@ -30,20 +31,22 @@ class SerialThread(threading.Thread):
                 self.ser.write((cmd + "\n").encode())
 
             # Read binary frames
-            byte = self.ser.read(1)
-            if byte == self.HEADER[:1]:
-                next_byte = self.ser.read(1)
-                if next_byte == self.HEADER[1:]:
-                    data = self.ser.read(self.frame_size)
-                    if len(data) == self.frame_size:
-                        try:
-                            unpacked = struct.unpack(self.struct_fmt, data)
-                            print(unpacked)
-                            (_, t, targetA, currentA, torque, t_ff, t_fb, desiredI, actualI, freq) = unpacked
-                            # self.data_queue.put(unpacked) 
-                            self.data_queue.put((t, targetA, currentA, torque, t_ff, t_fb, desiredI, actualI, freq))
-                        except struct.error:
-                            continue
+            try:
+                byte = self.ser.read(1)
+                if byte == self.HEADER[:1]:
+                    next_byte = self.ser.read(1)
+                    if next_byte == self.HEADER[1:]:
+                        data = self.ser.read(self.frame_size)
+                        if len(data) == self.frame_size:
+                            try:
+                                unpacked = struct.unpack(self.struct_fmt, data)
+                                # print(unpacked)
+                                (_, t, targetA, currentA, torque, t_ff, t_fb, desiredI, actualI, freq) = unpacked
+                                # self.data_queue.put(unpacked) 
+                                self.data_queue.put((t, targetA, currentA, torque, t_ff, t_fb, desiredI, actualI, freq))
+                            except struct.error:
+                                continue
+            except: print("Waiting for Teensy to send data")
 
             
 
@@ -73,7 +76,7 @@ class ExoController(QMainWindow):
         self.timer.timeout.connect(self.update_plots)
         self.timer.start(100)
 
-        self.running = False
+        # self.running = False
 
     def initUI(self):
         self.setWindowTitle("Exo Control")
@@ -97,11 +100,12 @@ class ExoController(QMainWindow):
 
         self.startBtn = QPushButton("START")
         self.stopBtn = QPushButton("STOP")
-        self.saveBtn = QPushButton("Save")
-        self.tuneBtn = QPushButton("Send Tuning")
+        self.saveBtn = QPushButton("SAVE")
+        self.tuneBtn = QPushButton("SET")
+        self.closeBtn = QPushButton("CLOSE")
         self.statusLabel = QLabel("Idle")
 
-        for w in [self.startBtn, self.stopBtn, self.saveBtn, self.tuneBtn]:
+        for w in [self.startBtn, self.stopBtn, self.saveBtn, self.tuneBtn, self.closeBtn]:
             w.setFixedWidth(100)
 
         ctrl_layout.addWidget(QLabel("File:"))
@@ -122,6 +126,7 @@ class ExoController(QMainWindow):
         ctrl_layout.addWidget(self.startBtn)
         ctrl_layout.addWidget(self.stopBtn)
         ctrl_layout.addWidget(self.saveBtn)
+        ctrl_layout.addWidget(self.closeBtn)
         ctrl_layout.addWidget(self.statusLabel)
 
         layout.addLayout(ctrl_layout)
@@ -136,10 +141,14 @@ class ExoController(QMainWindow):
         self.stopBtn.clicked.connect(self.stop_test)
         self.saveBtn.clicked.connect(self.save_data)
         self.tuneBtn.clicked.connect(self.send_tuning)
+        self.closeBtn.clicked.connect(self.close_window)
 
         # Shortcuts
-        self.startBtn.setShortcut(Qt.Key_Space)
-        self.stopBtn.setShortcut(Qt.Key_Escape)
+        self.startBtn.setShortcut(Qt.Key_Return)
+        self.stopBtn.setShortcut(Qt.Key_Space)
+        self.closeBtn.setShortcut(Qt.Key_C)
+
+        self.update_button_states(False)
 
     # ---------------- Plot setup ----------------
     def setup_plots(self):
@@ -171,8 +180,11 @@ class ExoController(QMainWindow):
         while not self.data_queue.empty():
             (t_us, target, current, torque, T_ff, T_fb,
              targetI, actualI, freq) = self.data_queue.get()
+            
+            if self.start_time is None:
+                self.start_time = t_us
 
-            t_s = t_us / 1e6
+            t_s = (t_us - self.start_time) / 1e6
             self.x_time.append(t_s)
             self.y_target.append(target)
             self.y_current.append(current)
@@ -202,38 +214,57 @@ class ExoController(QMainWindow):
     # ---------------- Controls ----------------
     def lock_inputs(self, state):
         """Disable edits while motor is running"""
-        for w in [self.fileEdit, self.freqEdit, self.ampEdit, self.offEdit,
+        for w in [self.freqEdit, self.ampEdit, self.offEdit,
                   self.phaseEdit, self.aEdit, self.alphaEdit, self.tuneBtn]:
             w.setEnabled(state)
 
     def start_test(self):
-        freq = self.freqEdit.text()
-        amp = self.ampEdit.text()
-        off = self.offEdit.text()
-        phase = self.phaseEdit.text()
-
-        cmd = f"SET {freq} {amp} {off} {phase}"
-        self.cmd_queue.put(cmd)
+        if self.running:
+            return
         self.cmd_queue.put("START")
-
         self.running = True
         self.lock_inputs(False)
+        self.update_button_states(True)
         self.statusLabel.setText("RUNNING")
 
+        # Clear old data and reset time reference
+        self.data_log.clear()
+        self.start_time = None
+        self.x_time.clear()
+        self.y_target.clear()
+        self.y_current.clear()
+        self.x_torque.clear()
+        self.y_torque.clear()
+        self.y_tff.clear()
+        self.y_tfb.clear()
+        self.x_cur.clear()
+        self.y_targetI.clear()
+        self.y_actualI.clear()
+        self.x_freq.clear()
+        self.y_freq.clear()
+
     def stop_test(self):
+        if not self.running:
+            return
         self.cmd_queue.put("STOP")
         self.running = False
         self.lock_inputs(True)
+        self.update_button_states(False)
         self.statusLabel.setText("STOPPED")
 
     def send_tuning(self):
         if self.running:
-            self.statusLabel.setText("Can't tune while running!")
+            self.statusLabel.setText("Can't send while running!")
             return
+        freq = self.freqEdit.text()
+        amp = self.ampEdit.text()
+        off = self.offEdit.text()
+        phase = self.phaseEdit.text()
         a = self.aEdit.text()
         alpha = self.alphaEdit.text()
-        self.cmd_queue.put(f"TUNE {a} {alpha}")
-        self.statusLabel.setText("Tuning params sent")
+        cmd = f"SET {freq} {amp} {off} {phase} {alpha} {a}"
+        self.cmd_queue.put(cmd)
+        self.statusLabel.setText("Params sent")
 
     def save_data(self):
         freq = self.freqEdit.text().replace('.', '_')
@@ -252,7 +283,17 @@ class ExoController(QMainWindow):
 
         self.statusLabel.setText(f"Saved → {path}")
 
+    def close_window(self):
+        self.stop_test()
+        self.serial_thread.stop()
+        self.close()
+    
+    def update_button_states(self, running):
+        self.startBtn.setEnabled(not running)
+        self.stopBtn.setEnabled(running)
+
     def closeEvent(self, event):
+        self.close_window()
         self.serial_thread.stop()
         event.accept()
 
