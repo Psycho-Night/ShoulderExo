@@ -29,6 +29,22 @@ class SerialThread(threading.Thread):
                 cmd = self.cmd_queue.get()
                 self.ser.write((cmd + "\n").encode())
 
+            # Read binary frames
+            byte = self.ser.read(1)
+            if byte == self.HEADER[:1]:
+                next_byte = self.ser.read(1)
+                if next_byte == self.HEADER[1:]:
+                    data = self.ser.read(self.frame_size)
+                    if len(data) == self.frame_size:
+                        try:
+                            unpacked = struct.unpack(self.struct_fmt, data)
+                            print(unpacked)
+                            (_, t, targetA, currentA, torque, t_ff, t_fb, desiredI, actualI, freq) = unpacked
+                            # self.data_queue.put(unpacked) 
+                            self.data_queue.put((t, targetA, currentA, torque, t_ff, t_fb, desiredI, actualI, freq))
+                        except struct.error:
+                            continue
+
             
 
     def stop(self):
@@ -50,6 +66,7 @@ class ExoController(QMainWindow):
 
         self.initUI()
         self.data_log = []
+        self.running = False
 
         # Timer for GUI updates
         self.timer = QTimer()
@@ -59,7 +76,7 @@ class ExoController(QMainWindow):
         self.running = False
 
     def initUI(self):
-        self.setWindowTitle("Exo Control + Tuning")
+        self.setWindowTitle("Exo Control")
         self.resize(1450, 900)
 
         cw = QWidget(self)

@@ -75,7 +75,7 @@ class ExoController(QMainWindow):
 
     # ---------------- UI ----------------
     def initUI(self):
-        self.setWindowTitle("Exo Control + Tuning (Synced)")
+        self.setWindowTitle("Exo Control")
         self.resize(1450, 900)
 
         cw = QWidget(self)
@@ -136,26 +136,26 @@ class ExoController(QMainWindow):
 
     # ---------------- Plot setup ----------------
     def setup_plots(self):
-        self.plot1 = self.graphWidget.addPlot(title="Angles")
+        self.plot1 = self.graphWidget.addPlot(0, 0, title="Angles")
         self.plot1.addLegend()
         self.x_time, self.y_target, self.y_current = [], [], []
         self.curve_target = self.plot1.plot([], [], pen="g", name="Target")
         self.curve_current = self.plot1.plot([], [], pen="r", name="Current")
 
-        self.plot2 = self.graphWidget.addPlot(title="Torque")
+        self.plot2 = self.graphWidget.addPlot(1, 0, title="Torque")
         self.plot2.addLegend()
         self.x_torque, self.y_torque, self.y_tff, self.y_tfb = [], [], [], []
         self.curve_torque = self.plot2.plot([], [], pen="y", name="Torque")
         self.curve_tff = self.plot2.plot([], [], pen="c", name="T_FF")
         self.curve_tfb = self.plot2.plot([], [], pen="r", name="T_FB")
 
-        self.plot3 = self.graphWidget.addPlot(title="Currents")
+        self.plot3 = self.graphWidget.addPlot(2, 0, title="Currents")
         self.plot3.addLegend()
         self.x_cur, self.y_targetI, self.y_actualI = [], [], []
         self.curve_targetI = self.plot3.plot([], [], pen="b", name="Target I")
         self.curve_actualI = self.plot3.plot([], [], pen="m", name="Actual I")
 
-        self.plot4 = self.graphWidget.addPlot(title="Sampling Frequency")
+        self.plot4 = self.graphWidget.addPlot(3, 0, title="Sampling Frequency")
         self.x_freq, self.y_freq = [], []
         self.curve_freq = self.plot4.plot([], [], pen="w", name="Freq")
 
