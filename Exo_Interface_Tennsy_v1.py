@@ -160,7 +160,7 @@ class ExoController(QMainWindow):
 
         self.plot2 = self.graphWidget.addPlot(1, 0, title="Torque")
         self.plot2.addLegend()
-        self.x_torque, self.y_torque, self.y_tff, self.y_tfb = [], [], [], []
+        self.x_torque, self.y_tfb, self.y_tff, self.y_torque = [], [], [], []
         self.curve_torque = self.plot2.plot([], [], pen="y", name="Torque")
         self.curve_tff = self.plot2.plot([], [], pen="c", name="T_FF")
         self.curve_tfb = self.plot2.plot([], [], pen="r", name="T_FB")
