@@ -4,13 +4,10 @@
 // Additional binary computer communication and new GUI(rewritten)
 
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-// ================ 1 kHz SYSTEM ===================================================
-// ---------------- Setup ----------------------------------------------------------
 #include <Arduino.h>
 
+// ================ 1 kHz SYSTEM ===================================================
 IntervalTimer sysTimer;
-
 volatile bool tickFlag = false;
 volatile uint32_t tickCount = 0;
 
@@ -35,6 +32,7 @@ float K_D = 0;            // D gain value
 float T_ff = 0;           // Feed forward tourqe
 float T_ff_prev = 0;      // Previous feed forward term
 float T_fb = 0;           // Feedback term 
+float T_fb_prev = 0;      // Previous feedback term
 float Torque = 0;         // Torque output from AAN after deadzone mitigation
 float Torque_old = 0;     // Torque output from AAN before deadzone mitigation
 
@@ -43,11 +41,13 @@ float frequency = 0.05;             // Frequecy of sin trajectory in Hz
 float amplitude = 35.0;             // Amplitude of sin trajectory in deg
 float offset = 35;                  // Offset of sin trajectory in deg
 float phaseShift = -PI/2;           // Phase shift for graduate rise of sin trajectory in rad
-unsigned long RampTime = 3*1000000; // Time of ramp signal
+unsigned long RampTime = 5*1000000; // Time of ramp signal
+unsigned long StarTime = 0;         // Time in which start controller starts
 
 //  ======================== TIME ==================================================
-unsigned long currentTime = 0;  // Current time [microseconds]
-unsigned long previousTime = 0; // For time calculation [microseconds]
+unsigned long currentTime = 0;      // Current time [microseconds]
+unsigned long previousTime = 0;     // For time calculation [microseconds]
+unsigned long InitDelay = 2*1000000;// Delay for the controller to start
 
 //  ======================== PIN SETUP =============================================
 // ------------------------- ESCON outputs -----------------------------------------
@@ -56,8 +56,8 @@ const int MotorDirectionPin = 2;  // Direction pin (Digital Input 4, HIGH = CW, 
 const int MotorTorquePin = 24;    // PWM set value (Analog Input 1), 12-bit resolution
 
 // ------------------------- Sensors -----------------------------------------------
-const int AngPin = A8;      // Shaft Encoder Pin use only A8 unless PCB board is changed. Teensy can handle max 3.3v
-const int EsconOutPin = A9; // Average current output from ESCON
+const int AngPin = A8;          // Shaft Encoder Pin use only A8 unless PCB board is changed. Teensy can handle max 3.3v
+const int EsconOutPin = A9;     // Average current output from ESCON
 
 // ------------------------- Parameters --------------------------------------------
 const float V_max = 3.3;        // Max input or output voltage [V]
@@ -74,7 +74,7 @@ float currentAngle = 0;         // Current Angle [deg] read from sensor
 float currentAngleRad = 0;      // Current Angle [rad] read from sensor
 float AverageCurrent = 0;       // Current read from Escon [A]
 const int gearRatio = 70;       // Gear ratio between motor and output shaft motor 35:1 and bevel gear 2:1 combined 70:1
-int DesiredPWM = 0;           // PWM send from Teensy
+int DesiredPWM = 0;             // PWM send from Teensy
 const float alpha_out = 1;      // Filter for deadzone
 const float bound = 0.05;       // upper/lower bound for deadzone   
 bool controllerActive = false;  // Activation of the control loop
@@ -138,6 +138,7 @@ void ProccesCommand(String cmd) {
       Serial.println("STOP THE MOTOR BEFORE SET");
     }     
   } else if (cmd.startsWith("START")){
+    digitalWrite(MotorEnablePin, HIGH);
     controllerActive = true;
     previousTime = micros();
     T_ff = 0;
@@ -149,6 +150,7 @@ void ProccesCommand(String cmd) {
     currentAngleRad = currentAngle * deg2rad;
     tickCount = 0;
     tickFlag = false;
+    StarTime = 0;
 
     Serial.println("START OK");
   } else if (cmd.startsWith("STOP")) {
@@ -165,7 +167,7 @@ float EncoderAngle(){
   int sensorValue = analogRead(AngPin);
   // Calculate the angle
   // float readAngle = -0.3315*sensorValue + 200.9-20;
-  float readAngle = -0.0845f*sensorValue + 181.16f;
+  float readAngle = -0.149f*sensorValue + 188.66f;
   // float readAngle = sensorValue; // Change to this line for calibration
   return readAngle;
 }
@@ -195,6 +197,7 @@ float signum(float sig_input) {
 
 void setup() {
   Serial.begin(1000000);  // Serial Monitor
+  // Serial.begin(115200);
 
   // Pins setup
   pinMode(MotorEnablePin, OUTPUT);
@@ -219,6 +222,7 @@ void setup() {
   error_prev = 0;
   vel_error = 0;
   T_ff_prev = 0;
+  
 
   sysTimer.begin(sysTickISR, 1000);
   Serial.println("READY");
@@ -236,15 +240,25 @@ void loop() {
     if (controllerActive) {
       // Time
       currentTime = micros();
+
+      if (StarTime == 0) {
+      StarTime = currentTime;
+      }
+      
       float deltaTime = (currentTime - previousTime)/1000000.0f;
       float SysFreq = 1.0f/deltaTime;
 
-      // Sin wave trajectory
-      float sinWave = offset + amplitude * sin(2.0f*PI*frequency*(currentTime/1000000.0f) + phaseShift);
-      float ramp = constrain((currentTime - RampTime)/1000000.0f,0.0f,1.0f);  // 1s ramp
-      targetAngle = (1.0f - ramp) * currentAngle + ramp * sinWave;
-      targetAngleRad = targetAngle*deg2rad;
-      
+      if (currentTime-StarTime < InitDelay) {
+        targetAngle = EncoderAngle();
+        targetAngleRad = targetAngle * deg2rad;
+      } else {
+        // Sin wave trajectory
+        float SinTime = currentTime - StarTime - InitDelay;
+        float sinWave = offset + amplitude * sin(2.0f*PI*frequency*(SinTime/1000000.0f) + phaseShift);
+        float ramp = constrain((currentTime - RampTime)/1000000.0f,0.0f,1.0f);  // 1s ramp
+        targetAngle = (1.0f - ramp) * currentAngle + ramp * sinWave;
+        targetAngleRad = targetAngle*deg2rad;
+      }
       // Encoder
       float rawAngle = EncoderAngle();
       currentAngle = 0.9f * currentAngle + 0.1f * rawAngle; // low-pass filter
@@ -267,6 +281,9 @@ void loop() {
       K_D = f * error;
 
       T_fb = K_P*error + K_D*vel_error;
+      // Filter
+      T_fb = 0.8f*T_fb_prev + 0.2f*T_fb; 
+      
 
       // Desired torque
       Torque_old = T_ff + T_fb;                                 // Combined torque from feedback and feed forward
@@ -277,9 +294,9 @@ void loop() {
 
       // Check for direction rotation
       if (Torque >=0) {
-        digitalWrite(MotorDirectionPin, LOW);
-      } else {
         digitalWrite(MotorDirectionPin, HIGH);
+      } else {
+        digitalWrite(MotorDirectionPin, LOW);
       }
 
       // Calculate and send PWM
@@ -293,6 +310,7 @@ void loop() {
       error_prev = error;
       previousTime = currentTime;
       T_ff_prev = T_ff;
+      T_fb_prev = T_fb;
 
       // Prepare and send data to PC
       Frame frame;
@@ -306,9 +324,22 @@ void loop() {
       frame.desiredI = desiredCurrent;
       frame.actualI = AverageCurrent;
       frame.freq = SysFreq;
-
       SendFrame(frame);
       
-    }
-  }
+      //----------------- Signal send test ----------------------
+      // frame.targetA = 2222.2f;
+      // frame.currentA = 3333.3f;
+      // frame.torque = 4444.4f;
+      // frame.t_ff = 5555.5f;
+      // frame.t_fb = 6666.6f;
+      // frame.desiredI = 7777.7f;
+      // frame.actualI = 8888.8f;
+      // frame.freq = 9999.9f;
+
+
+      // Sensor Calibration
+      // Serial.println(currentAngle);
+      
+    } // Controller active
+  } // Tick active
 }
