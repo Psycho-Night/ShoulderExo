@@ -41,7 +41,7 @@ float frequency = 0.05;             // Frequecy of sin trajectory in Hz
 float amplitude = 35.0;             // Amplitude of sin trajectory in deg
 float offset = 35;                  // Offset of sin trajectory in deg
 float phaseShift = -PI/2;           // Phase shift for graduate rise of sin trajectory in rad
-unsigned long RampTime = 5*1000000; // Time of ramp signal
+unsigned long RampTime = 2*1000000; // Time of ramp signal
 unsigned long StarTime = 0;         // Time in which start controller starts
 
 //  ======================== TIME ==================================================
@@ -76,7 +76,7 @@ float AverageCurrent = 0;       // Current read from Escon [A]
 const int gearRatio = 70;       // Gear ratio between motor and output shaft motor 35:1 and bevel gear 2:1 combined 70:1
 int DesiredPWM = 0;             // PWM send from Teensy
 const float alpha_out = 1;      // Filter for deadzone
-const float bound = 0.05;       // upper/lower bound for deadzone   
+const float bound = 0.001;       // upper/lower bound for deadzone   
 bool controllerActive = false;  // Activation of the control loop
 
 // =========================== COMPUTER COMUNICATION ===============================
@@ -167,7 +167,7 @@ float EncoderAngle(){
   int sensorValue = analogRead(AngPin);
   // Calculate the angle
   // float readAngle = -0.3315*sensorValue + 200.9-20;
-  float readAngle = -0.149f*sensorValue + 188.66f;
+  float readAngle = -0.149f*sensorValue + 188.66f+5.0f;
   // float readAngle = sensorValue; // Change to this line for calibration
   return readAngle;
 }
@@ -255,7 +255,7 @@ void loop() {
         // Sin wave trajectory
         float SinTime = currentTime - StarTime - InitDelay;
         float sinWave = offset + amplitude * sin(2.0f*PI*frequency*(SinTime/1000000.0f) + phaseShift);
-        float ramp = constrain((currentTime - RampTime)/1000000.0f,0.0f,1.0f);  // 1s ramp
+        float ramp = constrain((SinTime - RampTime)/1000000.0f,0.0f,1.0f);  // 1s ramp
         targetAngle = (1.0f - ramp) * currentAngle + ramp * sinWave;
         targetAngleRad = targetAngle*deg2rad;
       }
@@ -282,7 +282,7 @@ void loop() {
 
       T_fb = K_P*error + K_D*vel_error;
       // Filter
-      T_fb = 0.8f*T_fb_prev + 0.2f*T_fb; 
+      // T_fb = 0.8f*T_fb_prev + 0.2f*T_fb; 
       
 
       // Desired torque
