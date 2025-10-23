@@ -8,15 +8,15 @@
 
 // ================ 1 kHz SYSTEM ===================================================
 IntervalTimer sysTimer;
-volatile bool tickFlag = false;
-volatile uint32_t tickCount = 0;
-
+volatile bool tickFlag = false;   // Flag to run the loop
+volatile uint32_t tickCount = 0;  // CLock counter
+const int TimerTickNo = 2000;         // 1000 = 1kHz system; 2000 = 500Hz system;
 
 // ======================= AAN =====================================================
-float alpha = 0.006;      // Tuning parameter can be changed in GUI
+float alpha = 0.0045;      // Tuning parameter can be changed in GUI
 const float beta = 0.05;  // Kept cosntant at 0.05
 
-float a = 5.0;            // Tuning parameter can be changed in GUI
+float a = 2.2;            // Tuning parameter can be changed in GUI
 const float b = 5.0;      // Kept cosntant at 5.0
 
 float error = 0;          // Position error
@@ -41,13 +41,13 @@ float frequency = 0.05;             // Frequecy of sin trajectory in Hz
 float amplitude = 35.0;             // Amplitude of sin trajectory in deg
 float offset = 35;                  // Offset of sin trajectory in deg
 float phaseShift = -PI/2;           // Phase shift for graduate rise of sin trajectory in rad
-unsigned long RampTime = 2*1000000; // Time of ramp signal
-unsigned long StarTime = 0;         // Time in which start controller starts
+unsigned long RampTime = 2;         // Time of ramp signal
+unsigned long StartTime = 0;        // Time in which start controller starts
 
 //  ======================== TIME ==================================================
 unsigned long currentTime = 0;      // Current time [microseconds]
 unsigned long previousTime = 0;     // For time calculation [microseconds]
-unsigned long InitDelay = 2*1000000;// Delay for the controller to start
+unsigned long InitDelay = 2;        // Delay for the controller to start
 
 //  ======================== PIN SETUP =============================================
 // ------------------------- ESCON outputs -----------------------------------------
@@ -65,6 +65,7 @@ const float maxPWM = 4095;      // 12-bit PWM range
 float desiredCurrent = 0;       // Current output from AAN controller [A]
 const float maxCurrent = 4.24;  // Maximum allowable current for motor [A]
 const float Kt = 21.3/1000;     // Torque constant [Nm/A]
+const float MaxTorque = 6.32;   // Maximum allowable Tourque from motor[Nm]
 
 // =========================== OTHER PARAMETERS ====================================
 const float deg2rad = PI/180;   // convertion from degrees to radians for reverse convertion it's 1/deg2rad
@@ -150,7 +151,7 @@ void ProccesCommand(String cmd) {
     currentAngleRad = currentAngle * deg2rad;
     tickCount = 0;
     tickFlag = false;
-    StarTime = 0;
+    StartTime = 0;
 
     Serial.println("START OK");
   } else if (cmd.startsWith("STOP")) {
@@ -224,7 +225,7 @@ void setup() {
   T_ff_prev = 0;
   
 
-  sysTimer.begin(sysTickISR, 1000);
+  sysTimer.begin(sysTickISR, TimerTickNo);
   Serial.println("READY");
 
 }
@@ -241,21 +242,23 @@ void loop() {
       // Time
       currentTime = micros();
 
-      if (StarTime == 0) {
-      StarTime = currentTime;
+      if (StartTime == 0) {
+      StartTime = currentTime;
       }
       
       float deltaTime = (currentTime - previousTime)/1000000.0f;
       float SysFreq = 1.0f/deltaTime;
 
-      if (currentTime-StarTime < InitDelay) {
+      float elapsedTime = (currentTime - StartTime)/1000000.0f; // seconds
+
+      if (elapsedTime < InitDelay) {
         targetAngle = EncoderAngle();
         targetAngleRad = targetAngle * deg2rad;
       } else {
         // Sin wave trajectory
-        float SinTime = currentTime - StarTime - InitDelay;
-        float sinWave = offset + amplitude * sin(2.0f*PI*frequency*(SinTime/1000000.0f) + phaseShift);
-        float ramp = constrain((SinTime - RampTime)/1000000.0f,0.0f,1.0f);  // 1s ramp
+        float SinTime = elapsedTime - InitDelay;
+        float sinWave = offset + amplitude * sin(2.0f*PI*frequency*SinTime + phaseShift);
+        float ramp = constrain((SinTime/RampTime),0.0f,1.0f);  // 1s ramp
         targetAngle = (1.0f - ramp) * currentAngle + ramp * sinWave;
         targetAngleRad = targetAngle*deg2rad;
       }
@@ -280,9 +283,10 @@ void loop() {
       K_P = f * error;
       K_D = f * error;
 
-      T_fb = K_P*error + K_D*vel_error;
+      T_fb = constrain(K_P*error + K_D*vel_error, -MaxTorque, MaxTorque);
+
       // Filter
-      // T_fb = 0.8f*T_fb_prev + 0.2f*T_fb; 
+      T_fb = 0.9f*T_fb_prev + 0.1f*T_fb; 
       
 
       // Desired torque
