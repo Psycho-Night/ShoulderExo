@@ -1,8 +1,7 @@
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 // AAN controller - Maxon Current controller v4.1 Written for Teensy 4.1
-// Soft start, Time in micro seconds 500 Hz system,
+// Soft start, Time in micro seconds 1 kHz system,
 // Additional binary computer communication and new GUI(rewritten)
-// Sin wave trajectory
 
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 #include <Arduino.h>
@@ -177,10 +176,8 @@ float EncoderAngle(){
 float EsconCurrent(){
   // Read data
   int EsconOut = analogRead(EsconOutPin);
-  // Calculate Voltage
-  float voltage = (EsconOut/4095.0f) * 3.3f;
   //  Calculate Current
-  float Current = (voltage - 1.65f) / 1.65f * 5.00f;
+  float Current = EsconOut / 4095.0f * 4.24f;
   return Current;
 }
 // --------------------------- Other -----------------------------------------------
