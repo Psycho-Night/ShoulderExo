@@ -7,7 +7,7 @@
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 #include <Arduino.h>
 
-// ================ 1 kHz SYSTEM ===================================================
+// ================ 500 Hz SYSTEM ===================================================
 IntervalTimer sysTimer;
 volatile bool tickFlag = false;   // Flag to run the loop
 volatile uint32_t tickCount = 0;  // CLock counter
@@ -20,9 +20,12 @@ const float beta = 0.05;  // Kept cosntant at 0.05
 float a = 2.2;            // Tuning parameter can be changed in GUI
 const float b = 5.0;      // Kept cosntant at 5.0
 
-float error = 0;          // Position error
+float error = 0;          // Position error 
 float error_prev = 0;     // Previous position error
-float vel_error = 0;      // Velocity error
+float error_vel = 0;      // Velocity of the error -> error_dot(t)
+float error_vel_prev = 0  // Previous velocity of the error -> error_dot(t-1)
+float vel_error = 0;      // Error of velocity -> error_dot(t) - error_dot(t-1)
+float error_received = 0; // Error from previous iteration
 
 float epsilon = 0;
 float betta = 0;
@@ -31,11 +34,12 @@ float K_P = 0;            // P gain value
 float K_D = 0;            // D gain value
 
 float T_ff = 0;           // Feed forward tourqe
-float T_ff_prev = 0;      // Previous feed forward term
+float T_ff_prev = 0;      // Feed forward term from previous iteration 
 float T_fb = 0;           // Feedback term 
 float T_fb_prev = 0;      // Previous feedback term
 float Torque = 0;         // Torque output from AAN after deadzone mitigation
 float Torque_old = 0;     // Torque output from AAN before deadzone mitigation
+
 
 // ========================= SIN WAVE ==============================================
 float frequency = 0.05;             // Frequecy of sin trajectory in Hz
@@ -83,17 +87,26 @@ bool controllerActive = false;  // Activation of the control loop
 
 // =========================== COMPUTER COMUNICATION ===============================
 struct Frame {
-  uint16_t header;  // Always 0xAA55
-  uint32_t t;       // timestamp [microseconds]
-  float targetA;    // Target angle [deg]
-  float currentA;   // Current angle [deg]
-  float torque;     // Torque [Nm]
-  float t_ff;       // T_FF [Nm]
-  float t_fb;       // T_FB [Nm]
-  float desiredI;   // Desired output [A]
-  float actualI;    // Received input [A]
-  float freq;       // System Frequency [Hz]
+  uint16_t header;                // Always 0xAA55
+  uint32_t t;                     // timestamp [microseconds]
+  float targetA;                  // Target angle [deg]
+  float currentA;                 // Current angle [deg]
+  float torque;                   // Torque [Nm]
+  float t_ff;                     // T_FF [Nm]
+  float t_fb;                     // T_FB [Nm]
+  float desiredI;                 // Desired output [A]
+  float actualI;                  // Received input [A]
+  float freq;                     // System Frequency [Hz]
 };
+
+struct InputPacket {
+  uint16_t header;                // always 0x55AA
+  float T_ff_prev;                // feed-forward term from previous iteration
+  float error_received;               // previous position error
+};
+
+InputPacket incomingPacket;       
+bool newPacketAvailable = false;  // Flag for new packet
 
 // =========================== Functions ===========================================
 // --------------------------- System Frequency ------------------------------------
@@ -161,6 +174,37 @@ void ProccesCommand(String cmd) {
     analogWrite(MotorTorquePin,0);
 
     Serial.println("STOP OK");
+  } else () {
+    IncomingData = Serial.read();
+
+  }
+
+}
+
+void ReceiveBinaryPacket() {
+  static uint8_t buffer[sizeof(InputPacket)];
+  static size_t index = 0;
+
+  while (Serial.available() > 0) {
+    uint8_t incoming = Serial.read();
+
+    // Store byte into buffer
+    buffer[index++] = incoming;
+
+    // Check if we filled the full packet
+    if (index == sizeof(InputPacket)) {
+      memcpy(&incomingPacket, buffer, sizeof(InputPacket));
+
+      // Validate header
+      if (incomingPacket.header == 0x55AA) {
+        newPacketAvailable = true;
+      } else {
+        Serial.println("Bad header, discarded packet.");
+      }
+
+      // Reset buffer index
+      index = 0;
+    }
   }
 }
 // --------------------------- Sensor Read -----------------------------------------
@@ -239,6 +283,8 @@ void loop() {
     ProccesCommand(cmd);
   }
   
+  ReceiveBinaryPacket();
+
   if (tickFlag) {
     tickFlag = false;
     if (controllerActive) {
@@ -272,11 +318,12 @@ void loop() {
 
       // Error terms for controller
       error = targetAngleRad - currentAngleRad;
-      vel_error = (error-error_prev)/deltaTime;
+      error_vel = (error-error_prev)/deltaTime;
+      vel_error = error_vel - error_vel_prev;
 
       //------------- AAN --------------------------------------------------------------
       // Feed forward torque T_ff
-      T_ff = T_ff_prev + alpha*error_prev;
+      T_ff = T_ff_prev + alpha*error_received;
 
       // Feedback torque T_fb
       epsilon = error + beta *vel_error;
@@ -284,7 +331,7 @@ void loop() {
       f = epsilon/betta;
 
       K_P = f * error;
-      K_D = f * error;
+      K_D = f * vel_error;
 
       T_fb = constrain(K_P*error + K_D*vel_error, -MaxTorque, MaxTorque);
 
@@ -316,7 +363,7 @@ void loop() {
       // Record current values as previous
       error_prev = error;
       previousTime = currentTime;
-      T_ff_prev = T_ff;
+      // T_ff_prev = T_ff;
       T_fb_prev = T_fb;
 
       // Prepare and send data to PC
