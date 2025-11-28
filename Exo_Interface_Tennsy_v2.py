@@ -1,4 +1,13 @@
-import sys, serial, struct, threading, queue, os
+# exo_pc_controller.py
+import sys
+import os
+import time
+import struct
+import threading
+import queue
+import csv
+import math
+import serial
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QLineEdit, QPushButton,
     QLabel, QVBoxLayout, QWidget, QHBoxLayout
@@ -6,249 +15,279 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import QTimer, Qt
 import pyqtgraph as pg
 
+# ---------------- Settings ----------------
+SERIAL_PORT = '/dev/ttyACM0'    # Change to your port, e.g. 'COM4' on Windows
+BAUDRATE = 1_000_000
+DT = 1/500.0                    # Controller sample time (500 Hz)
+ITERATIONS = 9                  # Number of trial runs
+RAMP_SECONDS = 0.5              # Smoothing ramp in/out seconds
+# PID defaults
+Kp_default = 0.8
+Ki_default = 0.0
+Kd_default = 0.0
 
-# ---------------- Serial Thread -----------------
-class SerialThread(threading.Thread):
-    def __init__(self, data_queue, cmd_queue):
+# Binary packet formats
+# Packet we SEND to Teensy: header uint16 0x55AA + float torque -> '<Hf'
+SEND_FMT = '<Hf'
+SEND_HEADER = 0x55AA
+
+# Frame we RECEIVE from Teensy: header uint16 0xAA55 + 3 floats (currentA, actualI, receivedTau) -> '<Hfff'
+RECV_FMT = '<Hfff'
+RECV_HEADER = 0xAA55
+RECV_SIZE = struct.calcsize(RECV_FMT)
+
+
+# ---------------- Helper: read exact bytes with timeout ----------------
+def read_exact(ser, n, timeout=0.01):
+    """Read exactly n bytes from serial or return None."""
+    buf = bytearray()
+    deadline = time.perf_counter() + timeout
+    while len(buf) < n and time.perf_counter() < deadline:
+        chunk = ser.read(n - len(buf))
+        if chunk:
+            buf.extend(chunk)
+    if len(buf) == n:
+        return bytes(buf)
+    return None
+
+
+# ---------------- Controller worker (runs in background thread) ----------------
+class ControllerWorker(threading.Thread):
+    def __init__(self, ser, data_queue, stop_event,
+                 freq_hz, amp_deg, offset_deg, phase_rad,
+                 Kp, Ki, Kd, trials=ITERATIONS):
         super().__init__(daemon=True)
+        self.ser = ser
         self.data_queue = data_queue
-        self.cmd_queue = cmd_queue
-        self.active = True
+        self.stop_event = stop_event
+        self.freq = float(freq_hz)
+        self.amp = float(amp_deg)
+        self.offset = float(offset_deg)
+        self.phase = float(phase_rad)
+        self.Kp = float(Kp)
+        self.Ki = float(Ki)
+        self.Kd = float(Kd)
+        self.trials = int(trials)
+        self.dt = DT
+        self.ramp = RAMP_SECONDS
 
-        # Adjust COM port for your Teensy
-        self.ser = serial.Serial('/dev/ttyACM0', 1_000_000, timeout=1)
+        # physical constants for current calc / filename
+        self.gearRatio = 70
+        self.Kt = 21.3/1000.0
 
-        # Frame structure constants
-        self.FRAME_SIZE = 38  # bytes
-        self.HEADER = b'\x55\xaa'
-        self.PAYLOAD_SIZE = self.FRAME_SIZE - len(self.HEADER)
-        self.struct_fmt = "<Iffffffff"
-        self.struct_len = struct.calcsize(self.struct_fmt)
+    def build_folder(self, base_name):
+        freq_safe = str(self.freq).replace('.', '_')
+        amp_safe = str(self.amp).replace('.', '_')
+        off_safe = str(self.offset).replace('.', '_')
+        folder = os.path.join(os.path.expanduser('~'), 'Desktop', 'Exo_Data',
+                              f"{base_name}_{freq_safe}Hz{amp_safe}Amp_{off_safe}Off")
+        os.makedirs(folder, exist_ok=True)
+        return folder
+
+    def precompute_traj(self):
+        # total duration for 5.5 periods
+        periods = 5.5
+        dur = periods / self.freq
+        nsteps = int(round(dur / self.dt))
+        t = [i * self.dt for i in range(nsteps)]
+        # sine centered at offset, with phase and amplitude
+        traj = []
+        for ti in t:
+            traj.append(self.offset + self.amp * math.sin(2*math.pi*self.freq*ti + self.phase))
+        # apply ramp smoothing (cosine taper for first/last ramp seconds)
+        ramp_steps = int(round(self.ramp / self.dt))
+        if ramp_steps > 0:
+            for i in range(min(ramp_steps, nsteps)):
+                s = 0.5 * (1 - math.cos(math.pi * (i / ramp_steps)))  # 0..1
+                traj[i] = (1 - s) * traj[0] + s * traj[i]
+            for i in range(min(ramp_steps, nsteps)):
+                k = nsteps - 1 - i
+                s = 0.5 * (1 - math.cos(math.pi * (i / ramp_steps)))
+                traj[k] = (1 - s) * traj[-1] + s * traj[k]
+        return t, traj
+
+    def load_prev_iteration(self, folder, it_num, expected_len):
+        """Try to load previous iteration's T_ff and error arrays"""
+        prev_n = it_num - 1
+        if prev_n < 1:
+            return None, None
+        prev_path = os.path.join(folder, f"Iteration_{prev_n}.csv")
+        if not os.path.exists(prev_path):
+            return None, None
+        t_ff = []
+        err = []
+        with open(prev_path, 'r') as f:
+            rdr = csv.DictReader(f)
+            for row in rdr:
+                # expect columns 'T_ff' and 'error' (if missing, abort)
+                try:
+                    t_ff.append(float(row.get('T_ff', '0')))
+                    err.append(float(row.get('error', '0')))
+                except:
+                    return None, None
+        if len(t_ff) != expected_len:
+            # lengths mismatch -> ignore
+            return None, None
+        return t_ff, err
+
+    def send_torque_packet(self, torque):
+        pkt = struct.pack(SEND_FMT, SEND_HEADER, float(torque))
+        self.ser.write(pkt)
+
+    def recv_frame(self, timeout=0.02):
+        """Receive one binary frame with header RECV_HEADER. Non-blocking-ish with timeout."""
+        # we'll scan stream until we find header bytes in little-endian order (0xAA55)
+        start_deadline = time.perf_counter() + timeout
+        buf = b''
+        while time.perf_counter() < start_deadline:
+            b = self.ser.read(1)
+            if not b:
+                continue
+            buf += b
+            # keep last 2 bytes only
+            if len(buf) >= 2:
+                if buf[-2:] == struct.pack('<H', RECV_HEADER):
+                    # read remaining floats: 3 * 4 = 12 bytes
+                    rest = read_exact(self.ser, RECV_SIZE - 2, timeout=timeout)
+                    if rest is None:
+                        return None
+                    frame_bytes = struct.pack('<H', RECV_HEADER) + rest
+                    try:
+                        unpacked = struct.unpack(RECV_FMT, frame_bytes)
+                        # unpacked => (header, currentA, actualI, receivedTau)
+                        return unpacked
+                    except struct.error:
+                        return None
+                else:
+                    # trim buffer to last byte for continued scanning
+                    buf = buf[-1:]
+        return None
 
     def run(self):
-        print("Waiting for Teensy...")
-
-        while self.active:
-            # Process outgoing commands
-            if not self.cmd_queue.empty():
-                cmd = self.cmd_queue.get()
-                self.ser.write((cmd + "\n").encode())
-
-            # Find header
-            byte = self.ser.read(1)
-            if byte == self.HEADER[:1]:
-                next_byte = self.ser.read(1)
-                if next_byte == self.HEADER[1:]:
-                    payload = self.ser.read(self.PAYLOAD_SIZE)
-                    if len(payload) == self.PAYLOAD_SIZE:
-                        try:
-                            unpacked = struct.unpack(self.struct_fmt, payload)
-                            self.data_queue.put(unpacked)
-                        except struct.error:
-                            continue  # skip corrupted frame
-
-    def stop(self):
-        self.active = False
+        # build folder name from settings (use GUI file name passed via queue)
+        # The GUI will put the folder_name string into data_queue as special control message before starting
+        # but if not, create a default folder name
         try:
-            self.ser.close()
-        except:
-            pass
+            # Wait for GUI to push run base_name in queue (timeout small)
+            base_name = None
+            try:
+                base_name = self.data_queue.get(timeout=0.5)
+                # if it's a tuple (control message) we expect ('RUNBASE', base_name)
+                if isinstance(base_name, tuple) and base_name[0] == 'RUNBASE':
+                    base_name = base_name[1]
+            except queue.Empty:
+                base_name = "Test"
+        except Exception:
+            base_name = "Test"
 
+        folder = self.build_folder(base_name)
 
-# ---------------- GUI -----------------
-class ExoController(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.data_queue = queue.Queue()
-        self.cmd_queue = queue.Queue()
-        self.serial_thread = SerialThread(self.data_queue, self.cmd_queue)
-        self.serial_thread.start()
+        # precompute trajectory
+        t_arr, traj = self.precompute_traj()
+        nsteps = len(t_arr)
+        print(f"[Controller] trajectory len {nsteps}, duration {nsteps*self.dt:.3f}s")
 
-        self.initUI()
-        self.data_log = []
-        self.running = False
+        # run iterations
+        for it in range(1, self.trials + 1):
+            if self.stop_event.is_set():
+                break
 
-        # Timer for GUI updates
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_plots)
-        self.timer.start(100)
+            print(f"[Controller] Starting iteration {it}/{self.trials}")
+            # try to load T_ff and error from previous iteration if present
+            prev_tff, prev_err = self.load_prev_iteration(folder, it, nsteps)
+            # if present, use them as feedforward sequence; else zeros
+            if prev_tff is None:
+                ff_seq = [0.0]*nsteps
+                prev_err_seq = [0.0]*nsteps
+            else:
+                ff_seq = prev_tff
+                prev_err_seq = prev_err
 
-    # ---------------- UI ----------------
-    def initUI(self):
-        self.setWindowTitle("Exo Control")
-        self.resize(1450, 900)
+            # per-iteration log buffer (list of dicts)
+            rows = []
 
-        cw = QWidget(self)
-        self.setCentralWidget(cw)
-        layout = QVBoxLayout(cw)
+            # PID integrator
+            integ = 0.0
+            prev_error = 0.0
 
-        # Control layout
-        ctrl_layout = QHBoxLayout()
+            start_time = time.perf_counter()
 
-        self.fileEdit = QLineEdit("Test1")
-        self.freqEdit = QLineEdit("0.05")
-        self.ampEdit = QLineEdit("35.0")
-        self.offEdit = QLineEdit("35.0")
-        self.phaseEdit = QLineEdit("-1.57")
-        self.aEdit = QLineEdit("1.5")
-        self.alphaEdit = QLineEdit("0.006")
+            for k in range(nsteps):
+                if self.stop_event.is_set():
+                    break
+                t_target = t_arr[k]
+                target_angle = traj[k]
 
-        self.startBtn = QPushButton("START")
-        self.stopBtn = QPushButton("STOP")
-        self.saveBtn = QPushButton("Save")
-        self.tuneBtn = QPushButton("Send Tuning")
-        self.statusLabel = QLabel("Idle")
+                # If previous ff present, use it, else 0
+                T_ff = ff_seq[k] if ff_seq else 0.0
 
-        for w in [self.startBtn, self.stopBtn, self.saveBtn, self.tuneBtn]:
-            w.setFixedWidth(100)
+                # receive latest frame from Teensy (if available) before computing
+                # attempt to read one frame (small timeout)
+                frame = self.recv_frame(timeout=self.dt*0.5)
+                if frame is None:
+                    # no fresh frame — use previous measurement if available
+                    currentA = rows[-1]['currentA'] if rows else 0.0
+                    actualI = rows[-1]['actualI'] if rows else 0.0
+                    recvTau = rows[-1]['sentTau'] if rows else 0.0
+                else:
+                    # unpacked frame: (header, currentA, actualI, receivedTau)
+                    _, currentA, actualI, recvTau = frame
 
-        ctrl_layout.addWidget(QLabel("File:"))
-        ctrl_layout.addWidget(self.fileEdit)
-        ctrl_layout.addWidget(QLabel("Freq [Hz]:"))
-        ctrl_layout.addWidget(self.freqEdit)
-        ctrl_layout.addWidget(QLabel("Amp [°]:"))
-        ctrl_layout.addWidget(self.ampEdit)
-        ctrl_layout.addWidget(QLabel("Offset [°]:"))
-        ctrl_layout.addWidget(self.offEdit)
-        ctrl_layout.addWidget(QLabel("Phase [rad]:"))
-        ctrl_layout.addWidget(self.phaseEdit)
-        ctrl_layout.addWidget(QLabel("a:"))
-        ctrl_layout.addWidget(self.aEdit)
-        ctrl_layout.addWidget(QLabel("α:"))
-        ctrl_layout.addWidget(self.alphaEdit)
-        ctrl_layout.addWidget(self.tuneBtn)
-        ctrl_layout.addWidget(self.startBtn)
-        ctrl_layout.addWidget(self.stopBtn)
-        ctrl_layout.addWidget(self.saveBtn)
-        ctrl_layout.addWidget(self.statusLabel)
-        layout.addLayout(ctrl_layout)
+                # compute error & PID (simple)
+                error = (target_angle - currentA) * (math.pi/180.0)  # convert deg->rad for control if you prefer; but keep units consistent
+                integ += error * self.dt
+                deriv = (error - prev_error) / self.dt if self.dt > 0 else 0.0
+                T_fb = self.Kp * error + self.Ki * integ + self.Kd * deriv
 
-        # Plot setup
-        self.graphWidget = pg.GraphicsLayoutWidget()
-        layout.addWidget(self.graphWidget)
-        self.setup_plots()
+                torque_cmd = T_ff + T_fb
 
-        # Connections
-        self.startBtn.clicked.connect(self.start_test)
-        self.stopBtn.clicked.connect(self.stop_test)
-        self.saveBtn.clicked.connect(self.save_data)
-        self.tuneBtn.clicked.connect(self.send_tuning)
+                # clamp torque to reasonable bounds (user can change)
+                # (optional) we don't know motor limits here; keep them loose
+                # send torque packet to Teensy
+                self.send_torque_packet(torque_cmd)
 
-    # ---------------- Plot setup ----------------
-    def setup_plots(self):
-        self.plot1 = self.graphWidget.addPlot(0, 0, title="Angles")
-        self.plot1.addLegend()
-        self.x_time, self.y_target, self.y_current = [], [], []
-        self.curve_target = self.plot1.plot([], [], pen="g", name="Target")
-        self.curve_current = self.plot1.plot([], [], pen="r", name="Current")
+                # compute desired current (for logging & comparison)
+                desiredI = abs(torque_cmd) / (self.gearRatio * self.Kt)
 
-        self.plot2 = self.graphWidget.addPlot(1, 0, title="Torque")
-        self.plot2.addLegend()
-        self.x_torque, self.y_torque, self.y_tff, self.y_tfb = [], [], [], []
-        self.curve_torque = self.plot2.plot([], [], pen="y", name="Torque")
-        self.curve_tff = self.plot2.plot([], [], pen="c", name="T_FF")
-        self.curve_tfb = self.plot2.plot([], [], pen="r", name="T_FB")
+                t_now = time.perf_counter() - start_time
 
-        self.plot3 = self.graphWidget.addPlot(2, 0, title="Currents")
-        self.plot3.addLegend()
-        self.x_cur, self.y_targetI, self.y_actualI = [], [], []
-        self.curve_targetI = self.plot3.plot([], [], pen="b", name="Target I")
-        self.curve_actualI = self.plot3.plot([], [], pen="m", name="Actual I")
+                row = {
+                    'time': t_now,
+                    'target': target_angle,
+                    'currentA': currentA,
+                    'sentTau': torque_cmd,
+                    'T_ff': T_ff,
+                    'T_fb': T_fb,
+                    'desiredI': desiredI,
+                    'actualI': actualI,
+                    'error': error
+                }
+                rows.append(row)
 
-        self.plot4 = self.graphWidget.addPlot(3, 0, title="Sampling Frequency")
-        self.x_freq, self.y_freq = [], []
-        self.curve_freq = self.plot4.plot([], [], pen="w", name="Freq")
+                # push to GUI plotting queue (as tuple)
+                self.data_queue.put(('DATA', row))
 
-    # ---------------- Loop update ----------------
-    def update_plots(self):
-        while not self.data_queue.empty():
-            (t_us, target, current, torque, T_ff, T_fb,
-             targetI, actualI, freq) = self.data_queue.get()
+                prev_error = error
 
-            t_s = t_us / 1e6
-            self.x_time.append(t_s)
-            self.y_target.append(target)
-            self.y_current.append(current)
-            self.x_torque.append(t_s)
-            self.y_torque.append(torque)
-            self.y_tff.append(T_ff)
-            self.y_tfb.append(T_fb)
-            self.x_cur.append(t_s)
-            self.y_targetI.append(targetI)
-            self.y_actualI.append(actualI)
-            self.x_freq.append(t_s)
-            self.y_freq.append(freq)
+                # maintain sample time
+                next_step = start_time + (k+1)*self.dt
+                while (not self.stop_event.is_set()) and time.perf_counter() < next_step:
+                    time.sleep(0.0005)
 
-            self.data_log.append([t_s, target, current, torque, T_ff, T_fb,
-                                  targetI, actualI, freq])
+            # end of single iteration
+            # save CSV for this iteration
+            csv_path = os.path.join(folder, f"Iteration_{it}.csv")
+            with open(csv_path, 'w', newline='') as f:
+                fieldnames = ['time','target','currentA','sentTau','T_ff','T_fb','desiredI','actualI','error']
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                for r in rows:
+                    writer.writerow(r)
+            print(f"[Controller] Saved iteration {it} -> {csv_path}")
 
-        # Update plots
-        self.curve_target.setData(self.x_time, self.y_target)
-        self.curve_current.setData(self.x_time, self.y_current)
-        self.curve_torque.setData(self.x_torque, self.y_torque)
-        self.curve_tff.setData(self.x_torque, self.y_tff)
-        self.curve_tfb.setData(self.x_torque, self.y_tfb)
-        self.curve_targetI.setData(self.x_cur, self.y_targetI)
-        self.curve_actualI.setData(self.x_cur, self.y_actualI)
-        self.curve_freq.setData(self.x_freq, self.y_freq)
+            # small pause between iterations
+            time.sleep(0.2)
 
-    # ---------------- Controls ----------------
-    def lock_inputs(self, state):
-        for w in [self.fileEdit, self.freqEdit, self.ampEdit, self.offEdit,
-                  self.phaseEdit, self.aEdit, self.alphaEdit, self.tuneBtn]:
-            w.setEnabled(state)
-
-    def start_test(self):
-        freq = self.freqEdit.text()
-        amp = self.ampEdit.text()
-        off = self.offEdit.text()
-        phase = self.phaseEdit.text()
-        self.cmd_queue.put(f"SET {freq} {amp} {off} {phase}")
-        self.cmd_queue.put("START")
-        self.running = True
-        self.lock_inputs(False)
-        self.statusLabel.setText("RUNNING")
-
-    def stop_test(self):
-        self.cmd_queue.put("STOP")
-        self.running = False
-        self.lock_inputs(True)
-        self.statusLabel.setText("STOPPED")
-
-    def send_tuning(self):
-        if self.running:
-            self.statusLabel.setText("Can't tune while running!")
-            return
-        a = self.aEdit.text()
-        alpha = self.alphaEdit.text()
-        self.cmd_queue.put(f"TUNE {a} {alpha}")
-        self.statusLabel.setText("Tuning params sent")
-
-    def save_data(self):
-        freq = self.freqEdit.text().replace('.', '_')
-        amp = self.ampEdit.text().replace('.', '_')
-        off = self.offEdit.text().replace('.', '_')
-        name = f"{self.fileEdit.text()}_{freq}Hz{amp}Amp_{off}Off.csv"
-
-        desktop = os.path.join(os.path.expanduser("~"), "Desktop", "Exo_Data")
-        os.makedirs(desktop, exist_ok=True)
-        path = os.path.join(desktop, name)
-
-        with open(path, "w") as f:
-            f.write("Time,Target,Current,Torque,T_ff,T_fb,TargetI,ActualI,Freq\n")
-            for row in self.data_log:
-                f.write(",".join(map(str, row)) + "\n")
-
-        self.statusLabel.setText(f"Saved → {path}")
-
-    def closeEvent(self, event):
-        self.serial_thread.stop()
-        event.accept()
-
-
-# ---------------- Main -----------------
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = ExoController()
-    window.show()
-    sys.exit(app.exec_())
+        # done with all iterations or stopped
+        print("[Controller] finished")
+        self.data_queue.put(('DONE', None))
