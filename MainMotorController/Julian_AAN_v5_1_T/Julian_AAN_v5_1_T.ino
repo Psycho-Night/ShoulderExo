@@ -1,17 +1,18 @@
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-// AAN controller - Maxon Current controller v5.0 Written for Teensy 4.1
+// AAN controller - Maxon Current controller v5.1 Written for Teensy 4.1
 //
-// Teensy works only to tranfer data between PC and Exoskeleton
+// Teensy works only to transfer data between PC and Exoskeleton
 // Teensy receives tourqe command and sends PWM to ESCON
 // Teensy send to PC current angle and average current received from ESCON
 //
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 #include <Arduino.h>
+
 // ================ 500 Hz SYSTEM ===================================================
 IntervalTimer sysTimer;
 volatile bool tickFlag = false;   // Flag to run the loop
 volatile uint32_t tickCount = 0;  // CLock counter
-const int TimerTickNo = 10000;         // 1000 = 1kHz system; 2000 = 500Hz system;
+const int TimerTickNo = 2000;         // 1000 = 1kHz system; 2000 = 500Hz system;
 
 //  ======================== PIN SETUP =============================================
 // ------------------------- ESCON outputs -----------------------------------------
@@ -47,23 +48,26 @@ const float bound = 0.001;       // upper/lower bound for deadzone
 bool controllerActive = false;  // Activation of the control loop
 
 // =========================== COMPUTER COMUNICATION ===============================
-struct __attribute__((packed)) Frame {
+struct Frame {
   uint16_t header;                // Always 0xAA55
   float currentA;                 // Current angle [deg]
   float actualI;                  // Received input [A]
   float receivedTau;
-  uint16_t padding;
 };
 
-struct __attribute__((packed)) InputPacket {
+struct InputPacket {
   uint16_t header;                // always 0x55AA
   float Tau;                // feed-forward term from previous iteration
-  float Cmd;
 };
+
+const uint16_t HEADER_TO_PC   = 0xAA55;
+const uint16_t HEADER_FROM_PC = 0x55AA;
 
 InputPacket incomingPacket;       
 bool newPacketAvailable = false;  // Flag for new packet
+
 // =========================== Functions ===========================================
+// --------------------------- Time ------------------------------------------------
 void sysTickISR() {
   tickFlag = true;
   tickCount++;
@@ -91,24 +95,24 @@ void ProccesCommand(String cmd) {
 
 }
 
-bool ReceivePacket(InputPacket &pkt) {
-  static uint8_t buffer[sizeof(InputPacket)];
-  static size_t index = 0;
+float ReceiveFrame(){
+  if (Serial.available() >=6) {
+    uint8_t buf[6];
+    Serial.readBytes(buf, 6);
 
-  while (Serial.available() > 0) {
-    buffer[index++] = Serial.read();
-
-    if (index == sizeof(InputPacket)) {
-      memcpy(&pkt, buffer, sizeof(InputPacket));
-      index = 0;
-
-      if (pkt.header == 0x55AA) {
-        return true;
-      }
+    uint16_t header = buf[0] | (buf[1] << 8);
+    if (header == HEADER_FROM_PC) {
+      float receivedTau;
+      memcpy(&receivedTau, &buf[2], sizeof(float));
+      return receivedTau;
     }
   }
-  return false;
 }
+
+
+
+
+
 
 // --------------------------- Sensor Read -----------------------------------------
 float EncoderAngle(){
@@ -116,7 +120,7 @@ float EncoderAngle(){
   int sensorValue = analogRead(AngPin);
   // Calculate the angle
   // float readAngle = -0.3315*sensorValue + 200.9-20;
-  float readAngle = -0.149f*sensorValue + 188.66f+20.0f;
+  float readAngle = -0.149f*sensorValue + 188.66f+5.0f;
   // float readAngle = sensorValue; // Change to this line for calibration
   return readAngle;
 }
@@ -148,87 +152,27 @@ float signum(float sig_input) {
 
 
 void setup() {
-  Serial.begin(1000000);  // Serial Monitor
-
-  // Pins setup
-  pinMode(MotorEnablePin, OUTPUT);
-  pinMode(MotorDirectionPin, OUTPUT);
-  pinMode(MotorTorquePin, OUTPUT);
-  pinMode(AngPin, INPUT);
-  pinMode(EsconOutPin, INPUT);
-
-  digitalWrite(MotorEnablePin, LOW);
-  digitalWrite(MotorDirectionPin, LOW);
-  analogWrite(MotorTorquePin, 0);
-
-  analogReadResolution(12);
-  analogWriteResolution(12);
-  
+    Serial.begin(115200);
+  while (!Serial) {
+    ; // Wait for USB serial connection
+  }
   sysTimer.begin(sysTickISR, TimerTickNo);
-  // Serial.println("READY");
+  Serial.println("Teensy ready");
 
 }
 
 void loop() {
-  InputPacket pkt;
-  if (ReceivePacket(pkt)) {
-    Torque_prev = Torque = pkt.Tau;
-    if (pkt.Cmd >= 0.5) {
-      if (!controllerActive){
-      controllerActive = true;
-      digitalWrite(MotorEnablePin, HIGH);
-      Serial.println("START OK");
-      }
-    } else {
-      if (controllerActive){
-      controllerActive = false;
-      digitalWrite(MotorEnablePin, LOW);
-      analogWrite(MotorTorquePin, 0);
-      Serial.println("STOP OK");
-      }
-    }
-  }
-  // if (tickFlag){
-  //   tickFlag = false;
-    // Encoder
-    float rawAngle = EncoderAngle();
-    currentAngle = 0.8f * currentAngle + 0.2f * rawAngle; // low-pass filter
-    currentAngleRad = currentAngle*deg2rad;
+  if (tickFlag){
+    tickFlag = false;
 
-    // ESCON
-    AverageCurrent = EsconCurrent();
-
-
-    if (controllerActive){
-    Torque = 0.9f*Torque_prev + 0.1f*Torque;
-    // Convert torque to current
-    desiredCurrent = abs(Torque) / gearRatio /Kt;
-
-    if (Torque >=0) {
-      digitalWrite(MotorDirectionPin, HIGH);
-    } else {
-      digitalWrite(MotorDirectionPin, LOW);
-    }
-
-    // Calculate and send PWM
-    DesiredPWM = constrain((desiredCurrent/maxCurrent)*maxPWM, 0, maxPWM);      
-    analogWrite(MotorTorquePin,DesiredPWM);
+    float receivedTau = ReceiveFrame();
     Frame frame;
-    frame.header = 0xAA55;
-    frame.currentA = currentAngle;
-    // frame.actualI = 2.22222;
-    // frame.receivedTau = 5.444;
-    frame.actualI = AverageCurrent;
-    frame.receivedTau = Torque;
-    frame.padding = 0xBB66;
-    Torque_prev = Torque;
-    SendFrame(frame);
-    // Serial.println(sizeof(Frame));
-
-
-    } // end of controllerActive
-
+    frame.header = HEADER_TO_PC;
+    frame.currentA = receivedTau;   // Example math
+    frame.actualI = 2.222;            // Echo the received float
+    frame.receivedTau = 3.3333; // Another arbitrary calculation
     
-      
-  // } // end of tickFlag
-} // end of loop
+    SendFrame(frame);
+  }
+
+}

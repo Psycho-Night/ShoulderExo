@@ -6,6 +6,8 @@
 
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 #include <Arduino.h>
+#include <SD.h>
+#include <SPI.h>
 
 // ================ 500 Hz SYSTEM ===================================================
 IntervalTimer sysTimer;
@@ -23,7 +25,7 @@ const float b = 5.0;      // Kept cosntant at 5.0
 float error = 0;          // Position error 
 float error_prev = 0;     // Previous position error
 float error_vel = 0;      // Velocity of the error -> error_dot(t)
-float error_vel_prev = 0;  // Previous velocity of the error -> error_dot(t-1)
+float error_vel_prev = 0  // Previous velocity of the error -> error_dot(t-1)
 float vel_error = 0;      // Error of velocity -> error_dot(t) - error_dot(t-1)
 float error_received = 0; // Error from previous iteration
 
@@ -39,6 +41,8 @@ float T_fb = 0;           // Feedback term
 float T_fb_prev = 0;      // Previous feedback term
 float Torque = 0;         // Torque output from AAN after deadzone mitigation
 float Torque_old = 0;     // Torque output from AAN before deadzone mitigation
+int It_counter = 1;       // Iteration counter
+int It_counter_final = 4; // Final number of iteration
 
 
 // ========================= SIN WAVE ==============================================
@@ -85,8 +89,15 @@ const float alpha_out = 1;      // Filter for deadzone
 const float bound = 0.001;       // upper/lower bound for deadzone   
 bool controllerActive = false;  // Activation of the control loop
 
+// =========================== DATA LOGGING ====================================
+File logFile;
+const char *fileName = "log.bin"
+
+float Log_duration = 10;
+bool loggingfinished = false;
+
 // =========================== COMPUTER COMUNICATION ===============================
-struct Frame {
+struct __atribute__((packed)) Frame {
   uint16_t header;                // Always 0xAA55
   uint32_t t;                     // timestamp [microseconds]
   float targetA;                  // Target angle [deg]
@@ -99,14 +110,14 @@ struct Frame {
   float freq;                     // System Frequency [Hz]
 };
 
-struct InputPacket {
-  uint16_t header;                // always 0x55AA
-  float T_ff_prev;                // feed-forward term from previous iteration
-  float error_received;               // previous position error
-};
+// struct InputPacket {
+//   uint16_t header;                // always 0x55AA
+//   float T_ff_prev;                // feed-forward term from previous iteration
+//   float error_received;               // previous position error
+// };
 
-InputPacket incomingPacket;       
-bool newPacketAvailable = false;  // Flag for new packet
+// InputPacket incomingPacket;       
+// bool newPacketAvailable = false;  // Flag for new packet
 
 // =========================== Functions ===========================================
 // --------------------------- System Frequency ------------------------------------
@@ -118,6 +129,10 @@ void sysTickISR() {
 // --------------------------- Comunication ----------------------------------------
 void SendFrame(struct Frame &frame) {
   Serial.write((uint8_t *)&frame, sizeof(frame));
+}
+
+void SaveFrame(struct Frame &frame) {
+  logFile.write((uint8_t*)&frame, sizeof(frame))
 }
 
 void ProccesCommand(String cmd) {
@@ -174,8 +189,10 @@ void ProccesCommand(String cmd) {
     analogWrite(MotorTorquePin,0);
 
     Serial.println("STOP OK");
-  }
+  } else () {
+    IncomingData = Serial.read();
 
+  }
 
 }
 
@@ -268,6 +285,16 @@ void setup() {
   error_prev = 0;
   vel_error = 0;
   T_ff_prev = 0;
+
+  // SD Card
+  logFile = SD.open(fileName, FILE_WRITE);
+
+  if (!logFile) {
+    Serial.println("ERROR OPENING FILE!");
+    while(1);
+  } else{
+    logFile.truncate(0);
+  }
   
 
   sysTimer.begin(sysTickISR, TimerTickNo);
@@ -276,16 +303,22 @@ void setup() {
 }
 
 void loop() {
+
+
   if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
     ProccesCommand(cmd);
   }
   
-  ReceiveBinaryPacket();
+  // ReceiveBinaryPacket();
+  Log_duration = 1/frequency*3;
 
   if (tickFlag) {
     tickFlag = false;
-    if (controllerActive) {
+    
+
+    
+    if (controllerActive & Log_duration < elapsedTime) {  // 
       // Time
       currentTime = micros();
 
@@ -321,7 +354,12 @@ void loop() {
 
       //------------- AAN --------------------------------------------------------------
       // Feed forward torque T_ff
-      T_ff = T_ff_prev + alpha*error_received;
+      if (It_counter == 1){
+        T_ff = 0
+      } else{
+        // read log for that tick
+        T_ff = T_ff_prev + alpha*error_received;
+      }
 
       // Feedback torque T_fb
       epsilon = error + beta *vel_error;
@@ -376,7 +414,11 @@ void loop() {
       frame.desiredI = desiredCurrent;
       frame.actualI = AverageCurrent;
       frame.freq = SysFreq;
-      SendFrame(frame);
+
+      SaveFrame(frame);
+
+
+      // SendFrame(frame);
       
       //----------------- Signal send test ----------------------
       // frame.targetA = 2222.2f;
