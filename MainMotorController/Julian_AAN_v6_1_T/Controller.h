@@ -4,8 +4,6 @@
 #include "Sensors.h"
 #include "Comunication.h"
 float signum();
-// float EncoderAngle();
-// float 
 void SaveFrame(Frame &frame);
 bool FetchFrame(Frame &outFrame, uint32_t index);
 void RestStep();

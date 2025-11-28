@@ -44,13 +44,6 @@ void SaveFrame(Frame &frame) {
   if (!logFile) return;
 
   logFile.write((const uint8_t *)&frame, sizeof(frame));
-
-  // // Flush only every 50–100 frames to avoid slowing the loop
-  // if (Iteration % 50 == 0) {
-  //   logFile.flush();
-  // }
-
-  // Iteration++;
 }
 
 

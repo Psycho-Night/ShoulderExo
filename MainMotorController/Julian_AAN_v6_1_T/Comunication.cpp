@@ -91,8 +91,8 @@ void ProccesCommand(String cmd) {
     Serial.println("STOP OK");
   }
 }
-
-struct __attribute__((packed)) Frame {
+// Data frame packed ensures exactly 40bytes of data per frame
+struct __attribute__((packed)) Frame {              
   uint16_t header;                // Always 0xAA55
   uint32_t t;                     // timestamp [microseconds]
   float targetA;                  // Target angle [deg]
@@ -105,6 +105,8 @@ struct __attribute__((packed)) Frame {
   float freq;                     // System Frequency [Hz]
   uint16_t padding;                // Always 0xBB66
 };
+
+// Send frame Sending frame to PC for GUI
 
 void SendFrame(struct Frame &frame) {
   Serial.write((uint8_t *)&frame, sizeof(frame));

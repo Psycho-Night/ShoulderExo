@@ -15,13 +15,13 @@
 #include "Sensors.h"
 #include "Controller.h"
 
-// ===== SYSYEM FREQUENCY =====
+// =========================== SYSYEM FREQUENCY ====================================
 IntervalTimer sysTimer;
 volatile bool tickFlag = false;   // Flag to run the loop
 volatile uint32_t tickCount = 0;  // CLock counter
 int GUIcounter = 0;
 
-// =========================== STATE MACHINE ===============================
+// =========================== STATE MACHINE ======================================
 int State = 0;
 
 // ======================= AAN =====================================================
