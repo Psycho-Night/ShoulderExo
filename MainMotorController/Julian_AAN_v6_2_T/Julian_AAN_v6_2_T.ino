@@ -1,5 +1,5 @@
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-// AAN controller - Maxon Current controller v6.1 Written for Teensy 4.1
+// AAN controller - Maxon Current controller v6.27 Written for Teensy 4.1
 //
 // AAN coded on Teensy works at 500Hz and sends vaulues to GUI at 10Hz for debugging
 // Each Iteration is firstly saved in RAM memory and then moved to SDcard.
@@ -30,7 +30,7 @@ int State = 0;
 // ======================= AAN =====================================================
 float alpha = 0.01;      // Tuning parameter can be changed in GUI
 
-float a = 2.0;            // Tuning parameter can be changed in GUI
+float a = 0.2;            // Tuning parameter can be changed in GUI
 
 float error = 0;          // Position error 
 float error_prev = 0;     // Previous position error
@@ -53,7 +53,7 @@ float Torque = 0;         // Torque output from AAN after deadzone mitigation
 float Torque_old = 0;     // Torque output from AAN before deadzone mitigation
 
 // ========================= SIN WAVE ==============================================
-float frequency = 0.2;             // Frequecy of sin trajectory in Hz
+float frequency = 0.1;             // Frequecy of sin trajectory in Hz
 float amplitude = 35.0;             // Amplitude of sin trajectory in deg
 float offset = 35;                  // Offset of sin trajectory in deg
 float phaseShift = -PI/2;           // Phase shift for graduate rise of sin trajectory in rad
@@ -145,7 +145,7 @@ void loop() {
         break;
       default:
         break;
-    }
+    } // End of State
     
 
   } // End of TickFlag

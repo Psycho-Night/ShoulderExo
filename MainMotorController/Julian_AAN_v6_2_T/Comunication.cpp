@@ -33,7 +33,6 @@ void ProccesCommand(String cmd) {
       Serial.print("a ");
       Serial.println(a);
 
-      // State = 2;
       } else {
         Serial.println("UPDATE FAILED");
       }
@@ -91,7 +90,7 @@ void ProccesCommand(String cmd) {
     Serial.println("STOP OK");
   }
 }
-// Data frame packed ensures exactly 40bytes of data per frame
+// Data frame packed ensures exactly 32 bytes of data per frame
 struct __attribute__((packed)) Frame {              
   uint16_t header;                // Always 0xAA55
   uint32_t t;                     // timestamp [microseconds]

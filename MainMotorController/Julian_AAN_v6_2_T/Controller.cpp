@@ -1,8 +1,10 @@
+#include "core_pins.h"
+#include <Arduino.h>
+#include "usb_serial.h"
 #include <stddef.h>
 #include "FS.h"
 #include "avr/pgmspace.h"
 #include <stdint.h>
-#include <Arduino.h>
 #include <SD.h>
 #include <SPI.h>
 
@@ -17,10 +19,10 @@ struct __attribute__((packed)) Frame {
   uint32_t t;                     // timestamp [microseconds]
   float targetA;                  // Target angle [deg]
   float currentA;                 // Current angle [deg]
-  // float torque;                   // Torque [Nm]
+
   float t_ff;                     // T_FF [Nm]
   float t_fb;                     // T_FB [Nm]
-  // float desiredI;                 // Desired output [A]
+
   float actualI;                  // Received input [A]
   float freq;                     // System Frequency [Hz]
   uint16_t padding;                // Always 0xBB66
@@ -158,6 +160,7 @@ void AAN(){
   float SysFreq = 1.0f/deltaTime;
   float elapsedTime = (currentTime - StartTime)/1000000.0f; // seconds
   if (elapsedTime < InitDelay) {
+    targetAngle = currentAngle;
     targetAngleRad = currentAngleRad;
   } else {
     // Sin wave trajectory
@@ -169,6 +172,7 @@ void AAN(){
   }
   
   // Error terms for controller
+  float error_deg = targetAngle - currentAngle;
   error = targetAngleRad - currentAngleRad;
   error_vel = (error-error_prev)/deltaTime;
   vel_error = error_vel - error_vel_prev;
@@ -235,7 +239,7 @@ void AAN(){
 
   
 
-  // Frame frame;
+  // Save frame 50Hz
   if (SaveCounter >= 10){
     SaveCounter = 0;
     Frame &frame = FrameBufer[FrameCounter];
@@ -247,27 +251,26 @@ void AAN(){
     frame.t_ff = T_ff;
     frame.t_fb = T_fb;
     frame.actualI = AverageCurrent;
+    // frame.freq = 1234.567;
     frame.freq = SysFreq;
     frame.padding = 0xBB66;
 
-    float T_ff_next = T_ff + alpha *error;
-    TffNextBuf[FrameCounter] = T_ff_next;
 
+
+    float T_ff_next = T_ff + alpha *error_deg;
+    TffNextBuf[FrameCounter] = T_ff_next;
+    
+    SendFrame(frame);
     FrameCounter++;
   }
 
-  if (GUIcounter == Send2Gui) {
-    // SendFrame(frame);
-    GUIcounter = 0;
-  }
-
-  GUIcounter++;
+  
 }
 
 
 
 void RestStep(){
-  // Motor stays off
+  // Motor off
   analogWrite(MotorTorquePin, 0);
   digitalWrite(MotorDirectionPin, LOW);
   digitalWrite(MotorEnablePin, LOW);
@@ -275,7 +278,7 @@ void RestStep(){
 
   static bool savedThisRest = false;
 
-    // Only save once
+    
     if (!savedThisRest) {
         saveTrialToSD(Iteration);
         savedThisRest = true;
@@ -285,34 +288,48 @@ void RestStep(){
   if (micros() >= RestEndTime) {
       // Start next iteration
       
-      if (Iteration < FinalIteration) {
-        Iteration++;
-        PrevFrameCount = FrameCounter;
+      if (Iteration >= FinalIteration) {
 
-        for (uint32_t k = 0; k < PrevFrameCount; k++) {
-          T_ff_init[k] = TffNextBuf[k];
-        }
-
-        FrameCounter = 0;
-        SaveCounter = 0;
-        T_ff_prev = 0;
-        error_prev = 0;
-        error_vel_prev = 0;
-
-        StartTime = micros();
-        RunEndTime = StartTime + (uint32_t)(RunDuration * 1e6);
-
-      } else {
         State = 0; // finished all runs
         Serial.println("ALL ITERATIONS COMPLETE");
-        return;
+        savedThisRest = false; // keep it clean
+        return;       
+
       }
+
+      Iteration++;
+      PrevFrameCount = FrameCounter;
+
+      for (uint32_t k = 0; k < PrevFrameCount; k++) {
+        T_ff_init[k] = TffNextBuf[k];
+      }
+
+      FrameCounter = 0;
+      SaveCounter = 0;
+
+      T_fb_prev = 0;
+      T_ff_prev = 0;
+      Torque =0;
+      Torque_old =0;
       
+      error = 0;
+      error_prev = 0;
+      error_vel = 0;
+      error_vel_prev = 0;
+
+      previousTime = micros() - 2000;
+      StartTime = micros();
+      // StartTime = 0;
+      RunEndTime = StartTime + (uint32_t)(RunDuration * 1e6);
+      
+      State = 1;
+
       savedThisRest = false;
 
       
-      // Reset controller values if needed
 
+      Serial.print("STARTING ITERATION ");
+      Serial.println(Iteration);
             
   }
 }

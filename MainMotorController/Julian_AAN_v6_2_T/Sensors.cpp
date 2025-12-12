@@ -9,7 +9,6 @@ float EncoderAngle(){
   // Read encoder 
   int sensorValue = analogRead(AngPin);
   // Calculate the angle
-  // float readAngle = -0.3315*sensorValue + 200.9-20;
   float readAngle = -0.149f*sensorValue + 188.66f+5.0f;
   // float readAngle = sensorValue; // Change to this line for calibration
   return readAngle;

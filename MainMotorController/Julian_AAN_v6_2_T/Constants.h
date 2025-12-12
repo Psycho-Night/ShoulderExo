@@ -16,17 +16,17 @@
 // 6667  =  150Hz;
 // 10000 =  100Hz;
 // 20000 =   50Hz;
-// for now 500Hz is stable but only in first itteration
-// 100 is decent 
-const int TimerTickNo = 20000;
+// for now 500Hz is stable now
+// 
+const int TimerTickNo = 2000;
 const int Send2Gui = 50;    // Counter to send data to GUI  
 
 // ===== AAN parameters =====
-const float beta = 0.05f; // Kept cosntant at 0.05
-const float b = 5.0f;     // Kept cosntant at 5.0
-const int FinalIteration = 7;
+const float beta = 0.05f;       // Keep constant at 0.05
+const float b = 5.0f;           // Keep constant at 5.0
+const int FinalIteration = 15;  // Set number of iterations
 
-const int Max_Frame_Num = 8000;
+const int Max_Frame_Num = 8000; // Max number of frames in buffer. Right now 8000 holds around 160s make sure not exceed it
 
 
 // ===== PIN SETUP =====
