@@ -5,8 +5,8 @@ This folder contains an `.ino` code written for the **Teensy 4.1**.
 The current controller used is:
 **`Julian_AAN_v6_2_T.ino.`**
 
-In **`Constants.h'** value FinalIteration specifies number of iterations to run.
-Duration of each run is specified in **`Globals.h'** as RunDuration and is multiplied period of sin wave.
+In **`Constants.h`** value FinalIteration specifies number of iterations to run.
+Duration of each run is specified in **`Globals.h`** as RunDuration and is multiplied period of sin wave.
 
 ---
 
